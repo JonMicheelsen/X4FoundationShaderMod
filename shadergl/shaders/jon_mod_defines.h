@@ -22,11 +22,11 @@
 //	#define JON_MOD_SUBSURFACE_EPIDERMAL_ROUGHNESS -0.1
 //	#define JON_MOD_SUBSURFACE_EPIDERMAL_F0 0.0224f
 
-//#define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
+#define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
 
-//#define JON_MOD_USE_LUMINANCE_FRESNEL
-
-//#define JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS //un-fuck-up-ing it
+#define JON_MOD_USE_LUMINANCE_FRESNEL
+	#define JON_MOD_USE_STRICTER_N_DOT_V
+	#define JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS //Indeed it was, un-fuck-up-ing it up :D
 
 #define JON_MOD_SSSHADOWS //default on
 	//near and far
@@ -46,7 +46,7 @@
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
-//pending
+//pending implementation
 //#define JON_MOD_SSSHADOWS_POINTLIGHTS
 
 //debugs

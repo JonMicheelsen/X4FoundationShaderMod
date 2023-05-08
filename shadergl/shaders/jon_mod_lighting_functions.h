@@ -1,6 +1,8 @@
 ////////////////// JON MOD LIGHTING FUNCTIONS //////////////////
 //Included right before global_lights() in common.fh, that is included in all lighting code
+// as well as in the start of lighting_common.h
 
+#ifndef _JON_MOD_LIGHTING_FUNCTIONS_
 //L we have to trasnform to view space
 float ScreenSpaceShadows(	in vec3 light_ray, 
 							in vec2 cascade_blend, 
@@ -65,3 +67,44 @@ float ScreenSpaceShadows(	in vec3 light_ray,
 	
 	return 1.0 - shadow * (cascade_blend.x + cascade_blend.y);
 }
+
+// [Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"]
+// Similar to UE4/5 but with actual luminance, since that's a nice touch, rather than just cspec.g
+vec3 schlick_f(vec3 cspec, float v_dot_h)
+{
+	float f = pow5(1.0 - v_dot_h);
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(GetViewPos().x < 0.0)
+			return f + (1-f) * cspec;
+	#endif	
+	return saturate(50.0 * dot(LUM_ITU601, cspec)) * f + (1.0 - f) * cspec;
+}
+// https://advances.realtimerendering.com/s2018/index.htm
+// It has been extended here to fade out retro reflectivity contribution from area light in order to avoid visual artefacts.
+vec3 chan_diff(vec3 cdiff, float a2, float n_dot_v, float n_dot_l, float v_dot_h, float n_dot_h, float arealight_weight, vec3 cspec)
+{
+	float g = saturate((1.0 / 18.0) * log2(2.0 / a2 - 1.0));
+	
+	float f0 = (v_dot_h + pow5(1.0 - v_dot_h));
+	float fdv = (1.0 - 0.75 * pow5(1.0 - n_dot_v));
+	float fdl = (1.0 - 0.75 * pow5(1.0 - n_dot_l));
+
+	// Rough (f0) to smooth (fdv * fdv) response interpolation
+	float fd = mix(f0, fdv * fdl, saturate(2.2 * g - 0.5));
+	
+	// Retro reflectivity contribution.
+	float fb = ((34.5 * g - 59.0) * g + 24.5) * v_dot_h * exp2(-max(73.2 * g - 21.2, 8.9) * sqrt(n_dot_h));
+	
+	// It fades out when lights become area lights in order to avoid visual artefacts.
+	fb *= arealight_weight;
+	
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(GetViewPos().x < 0.0)
+			return cdiff * (1.0 / PI) * saturate(1.0f - dot(LUM_ITU601, cspec));
+	#endif
+		
+	return cdiff * ((1.0 / PI) * (fd + fb));
+	
+}
+#define _JON_MOD_LIGHTING_FUNCTIONS_
+#endif
