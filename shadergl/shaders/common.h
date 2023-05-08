@@ -11,8 +11,6 @@
 #pragma optionNV(inline all)
 */
 
-#include <jon_mod.h>
-
 #define D_DYNAMIC 1
 #define D_STATIC 2
 #define D_SPECIAL 3
@@ -983,5 +981,5 @@ float volume_getfadefactor(float viewz, float size)
 	#define XR_TO_linearRGB(val)	(val)
 #endif
 
-
-
+#include <jon_mod_defines.h>
+#include <jon_mod_util_functions.h>

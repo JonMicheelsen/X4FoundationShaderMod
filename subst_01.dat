@@ -1458,6 +1458,7 @@ float4 calc_Strauss_PBR(	CONST float3 N,
 	
 #endif
 
+#include <jon_mod_lighting_functions.h>
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr, vec4 prev)
 {
@@ -1501,6 +1502,10 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	// shadows for mainlight
 	float Shadow = 0.0f;
 	vec4 test = vec4(0);
+#ifdef JON_MOD_SSSHADOWS
+	float fade = 0.0;
+#endif 		
+	
 #ifndef DISABLE_SHADOW_HELPERS
 #ifndef DISABLE_SHADOW_SUPPORT
 	if (B_shadow && direct_occlusions[0] > 0.0f) {
@@ -1510,8 +1515,11 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		if (F_shadowmaxdistance < 6000.0f) {
 			FADE_STR_DIST = 0.7;
 		}
-
-		float fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#ifdef JON_MOD_SSSHADOWS
+			fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#else
+			float fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#endif
 
 		vec4 coords[5];
 		coords[0] = mul(float4(view_pos, 1), M_shadowCSM0);
@@ -1549,7 +1557,9 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 
 	// light accumulation
 	vec3 light_accum = vec3(0);
-
+#ifdef JON_MOD_SSSHADOWS
+	vec3 ss_shadow_debug = vec3(0.0);
+#endif	
 	// dirlights
 	for(int i=0; i<2; i++) {
 		//float n_dot_l = saturate(dot(Normal, ldirs[i]));
@@ -1558,6 +1568,41 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//	direct_occlusion *= Shadow;
 		//}
 		CONST float light_radius = V_deferred_lightparams.x*10; // dbg scale
+
+		float ss_shadow = 1.0;
+		
+		#ifdef JON_MOD_SSSHADOWS
+			float fade_near = saturate(-(length(view_pos) - JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR) / (JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR * 0.5));
+			fade = max(fade, saturate((length(view_pos) - (1.0 - 0.1) * JON_MOD_SSSHADOWS_FADE_DISTANCE) / (0.5 * JON_MOD_SSSHADOWS_FADE_DISTANCE)));
+			#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
+				ss_shadow_debug.r = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG] * (fade_near + fade);
+				ss_shadow_debug.b = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG];
+			#endif
+			//screenspace shadow
+			if((direct_occlusions[i] * (fade_near + fade)) > 0.0)
+			{
+				#ifndef JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS
+				if(i > 0)
+					break;
+				#endif
+				
+				#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+					if(GetViewPos().x > 0.0)
+				#endif
+				ss_shadow = ScreenSpaceShadows(	world2view_rot(-ldirs[i]), 
+															vec2(fade_near, fade), 
+															ss_shadow_debug, 
+															i);
+			}
+			#ifdef JON_MOD_SSSHADO_FILTER
+				#if 1
+					ss_shadow = mix(ss_shadow, 0.5, saturate((fwidth(ss_shadow))));
+				#else
+					ss_shadow = mix(ss_shadow, 0.5, saturate(max(abs(dFdxFine(ss_shadow)), abs(dFdyFine(ss_shadow)))));
+				#endif
+			#endif
+		#endif
+		direct_occlusions[i] *= ss_shadow;
 
 		// todo: slightly refactor the following
 		vec3 L;
@@ -1574,15 +1619,28 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//light_accum += cdiff / PI * E_diffuse; // diffuse
 		light_accum += cdiff * E_diffuse; // diffuse
 	}
-	
 	{// ambient light
 		// reduce roughness based on v_dot_n yields nicer fresnel contours
 		float v_dot_n = saturate(dot(wv, wn));
 		
-		// smaller cone at edges to highlight fresnel
-		float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
-		//ambRoughness = Roughness; // deactivated, effect too strong
-		
+		/*
+		Jon Note if anyone from Egosoft ever reads this, I would stronly recommend against this!! 
+		None of the AAA engines does it. It leads to insane levels of specular aliasing, even with TAA.
+		And the high anisotropic strething reflections you're trying to acomplish with it can't be achieved like this.
+		It is technically possible to stretch the derivatives for a textureCUBEgrad() however. ;)
+		*/
+		#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				float ambRoughness = GetViewPos().x > 0.0 ? Roughness : mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));	
+			#else				
+				float ambRoughness = Roughness;
+			#endif
+		#else
+			// smaller cone at edges to highlight fresnel
+			float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
+			//ambRoughness = Roughness; // deactivated, effect too strong
+		#endif		
+
 		// vec3 spec_amb =  simple_spec_brdf_ibl(T_ibl_envmap, cspec, Roughness, wn, wv);
 		// vec3 spec_amb =  spec_brdf_ibl(T_ibl_envmap, vec3(0,0,0), T_preintegrated_GGX, cspec, ambRoughness, wn, wv);
 		vec3 Eamb = V_ambient1.rgb;
@@ -1615,6 +1673,9 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	}
 	
 	light_accum = clamp(light_accum.rgb, 0, 10); // safety clamp, not visible
+	#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
+		light_accum = ss_shadow_debug;
+	#endif
 	return DEFERRED_HACK_TO_sRGB(light_accum) * ambient_occlusion * vec3(0.0, 1.0, 0.0);	//TODO why is there a double ambient_occlusion multiply?!
 }
 
@@ -1683,8 +1744,6 @@ vec4 global_envmap_resolve_glass(vec3 wn, vec3 wv, float Roughness, float shadow
 #pragma optionNV(unroll all)
 #pragma optionNV(inline all)
 */
-
-#include <jon_mod.h>
 
 #define D_DYNAMIC 1
 #define D_STATIC 2
@@ -2656,56 +2715,131 @@ float volume_getfadefactor(float viewz, float size)
 	#define XR_TO_linearRGB(val)	(val)
 #endif
 
+#include <jon_mod_defines.h>
+#include <jon_mod_util_functions.h>/////////////////////////// JON MOD UTIL FUNCTIONS //////////////////////
+//Included in the start of gbuffer_access.h, that is included most anywhere
+void PackMetalSubsurface(inout float Metal, in float Subsurface)
+{
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(GetFragUV().x > 0.5)
+		{		
+	#endif
+			//Metal and Subsurface are natureally mutually exclusice, so we can pack both in metal
+		//	Subsurface *= (1.0 - saturate(Metal * 256.0 - 4.0));//DDS compression could mess worst case 4 rbg scale steps, so makes sure to nix very low metal!
+			const float dds_bias = -4.0/256.0;
+			const float dds_boost = 1.0 / dds_bias;
+			Metal = saturate(Metal * dds_boost + dds_bias);
+			Metal = (Metal * 0.5) + (0.5 - Subsurface * 0.5);
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		}
+	#endif
 
+}
+void PackMetal(inout float Metal)
+{
+	#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+		//Metal and Subsurface are natureally mutually exclusice, so we can pack both in metal
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(GetFragUV().x > 0.5)
+		#endif
+			Metal = (Metal * 0.5) + 0.5;		
+	#endif
+}
 
-////////////////// JON MOD SETTINGS START //////////////////
-//Included in common.h, that is included most anywhere
+void UnpackMetalSubsurface(inout float Metal, inout float Subsurface)
+{
+	#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(GetFragUV().x > 0.5)
+			{		
+		#endif
+			//Metal and Subsurface are natureally mutually exclusice, so we can pack both in metal
+			Subsurface = max(0.0, 1.0 - Metal * 2.0);
+			Metal = max(0.0, Metal * 2.0 - 1.0);
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			}
+		#endif
+	#endif
+}
+void MetalStrict(inout float Metal)
+{
+	#ifdef JON_MOD_ENFORCE_STRICT_METALLIC
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(GetFragUV().x > 0.5)
+			{		
+				Metal = smoothstep(0.25, 0.75, Metal);
+			}
+			else
+			{
+				Metal = Metal;
+			}
+		#else
+			Metal = smoothstep(0.25, 0.75, Metal);
+		#endif
+	#endif
+}
+void RoughnessRemapSmoothVersion(inout float Smooth)
+{
+	#ifdef JON_MOD_ROUGHNESS_REMAP
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(GetFragUV().x > 0.5)
+			{		
+				Smooth = 1.0 - pow2(1.0 - Smooth * JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
+			}
+			else
+			{
+				Smooth = Smooth;
+			}
+		#else
+			Smooth = 1.0 - pow2(1.0 - Smooth * JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
+		#endif
+	#endif
+}////////////////// JON MOD HOLODECK //////////////////
+//Included in the very end of common.h, that is included most anywhere
+/*
+	Comment out to enable or disable. Change variable after define if relevant to tweak. 
+	Indented #defines means the top non indeted one need to be one for them to work
+	Have fun!
+*/
 
 //#define JON_MOD_SPECULAR_OVERSHOOT_FIX //default on, fixes geometric light white bright artefact
 #define JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE //default on
 
-#define JON_MOD_ROUGHNESS_REMAP // default on. Old Pixar trick, since artists has a tendency to overuse the lower end of the roughness and neglect the high end, this one does a gentle remap improving both!
+#define JON_MOD_ROUGHNESS_REMAP // default on. Disney trick, since artists has a tendency to overuse the lower end of the roughness and neglect nuances in the high end, this one does a gentle remap improving both!
 #define JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE 0.5//default 0.5
-
-//#define JON_MOD_ENFORCE_STRICT_METALLIC
-//#define JON_MOD_ENFORCE_PBR_INPUT_COLORS		//will follow the loose PBR guidlines
-//#define JON_MOD_ENFORCE_PBR_INPUT_COLORS_STRICT //will endorce the strict PBR guidlines
 
 
 // Human skin lowest index of refraction(IOR)1.35 = 0.28 in unreal specular, or #47, rgb71, 28%brightness, as linear color
 // Human skin highest index of refraction(IOR)1.55 = 0.58 in unreal specular, or #94, rgb148, 58%brightness, as linear color
 // Human hair(and nails technically too) highest index of refraction(IOR)1.55 = 0.58 in unreal specular, or #94, rgb148,
 // Specular scale is 0.08, so (0.28 * 0.08), etc...
-#define JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
-#define JON_MOD_SUBSURFACE_SUBDERMAL_ROUGHNESS 0.5
-#define JON_MOD_SUBSURFACE_EPIDERMAL_ROUGHNESS -0.1
-#define JON_MOD_SUBSURFACE_EPIDERMAL_F0 0.0224f
+//#define JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+//	#define JON_MOD_SUBSURFACE_SUBDERMAL_ROUGHNESS 0.5
+//	#define JON_MOD_SUBSURFACE_EPIDERMAL_ROUGHNESS -0.1
+//	#define JON_MOD_SUBSURFACE_EPIDERMAL_F0 0.0224f
 
-#define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
+//#define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
 
-#define JON_MOD_USE_LUMINANCE_FRESNEL
+//#define JON_MOD_USE_LUMINANCE_FRESNEL
 
-#define JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS //un-fuck-up-ing it
+//#define JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS //un-fuck-up-ing it
 
 #define JON_MOD_SSSHADOWS //default on
-#define JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS //default on
-#define JON_MOD_SSSHADOWS_MAX_STEPS 32 //default 64, it's pretty rare to ever go this high be aware this is a times 2
+	#define JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS //default on
+	#define JON_MOD_SSSHADOWS_MAX_STEPS 32 //default 64, it's pretty rare to ever go this high be aware this is a times 2
+	#define JON_MOD_SSSHADOWS_FADE_DISTANCE 5000.0 //not all PCF shadows have the same distance, so some lods will still shadow pop if we just use that, so with this we can enforce a max distance where everything will use Screenspace Shadows
+	#define JON_MOD_SSSHADOWS_DITHER 2.0 //default 1
+	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE 240.0 //default 240.0 = 24.0m distance. I think 1 is about 10cm, so a hundred meters is 10000
+	#define JON_MOD_SSSHADOWS_BIAS 1.0 //default 10.0 = 1.0m
+	#define JON_MOD_SSSHADOWS_MAX_THICKNESS 1000.0 //default 1000.0 = 100.0m shadows thicker than this from the camera are ignored, so as to things near ain't casting shadows on things far
+	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 10cm
+	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.05 //0.1cm
+	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.1 //1cm
+	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 10.0 //not all PCF shadows have the same distance, so some lods will still shadow pop if we just use that, so with this we can enforce a max distance where everything will use Screenspace Shadows
+	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0
+	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
 
-#define JON_MOD_SSSHADOWS_FADE_DISTANCE 5000.0 //not all PCF shadows have the same distance, so some lods will still shadow pop if we just use that, so with this we can enforce a max distance where everything will use Screenspace Shadows
-#define JON_MOD_SSSHADOWS_DITHER 2.0 //default 1
-
-#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE 240.0 //default 240.0 = 24.0m distance. I think 1 is about 10cm, so a hundred meters is 10000
-#define JON_MOD_SSSHADOWS_BIAS 1.0 //default 10.0 = 1.0m
-#define JON_MOD_SSSHADOWS_MAX_THICKNESS 1000.0 //default 1000.0 = 100.0m shadows thicker than this from the camera are ignored, so as to things near ain't casting shadows on things far
-
-#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 10cm
-#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.05 //0.1cm
-#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.1 //1cm
-#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 10.0 //not all PCF shadows have the same distance, so some lods will still shadow pop if we just use that, so with this we can enforce a max distance where everything will use Screenspace Shadows
-#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0
-#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
-
-#define JON_MOD_SSSHADOWS_POINTLIGHTS
+//#define JON_MOD_SSSHADOWS_POINTLIGHTS
 
 //debugs
 //#define JON_MOD_SSSHADOWS_DEBUG_MODE
@@ -2714,8 +2848,93 @@ float volume_getfadefactor(float viewz, float size)
 //#define JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 
 #define INVPI 	(0.318309886f)
+////////////////// JON MOD LIGHTING FUNCTIONS //////////////////
+//Included right before global_lights() in common.fh, that is included in all lighting code
+
+//L we have to trasnform to view space
+float ScreenSpaceShadows(	in vec3 light_ray, 
+							in vec2 cascade_blend, 
+							inout vec3 debug, 
+							in int i)	
+{
+	float step_size = 1.0 / float(JON_MOD_SSSHADOWS_MAX_STEPS);
+	
+	// Compute ray step
+	vec3 ray_step = light_ray * step_size * max(JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR, JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE * cascade_blend.y);
+	
+	// Ray march towards the light
+	float shadow = 0.0;
+	vec2 ray_uv = vec2(0.0);
+	vec2 fade = vec2(0.0);
+
+	vec3 ray_pos = GetViewPos();
+	float2 aspect = float2(0.5, -0.5 * V_viewportpixelsize.x / V_viewportpixelsize.y);
+
+	//different ways of getting what we need
+	//debug = fract(vec3(1.0 / vec2(GetDepth(GetFragUV()), GetDepth()), GetViewPos().z * 10.0));//why 10?
+	//works too
+	//debug = fract(vec3(1.0 / vec2(GetDepth((ray_pos.xy / ray_pos.z) * aspect + 0.5), GetDepth()), GetViewPos().z * 10.0));//why 10?
+	
+	float depth = (ray_pos.z * 10.0);
+	vec2 dither = hash22(gl_FragCoord.xy);
+	vec2 texel_size = (1.0 / V_viewportpixelsize.xy);
+	float thickness_threshold = max(JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR, JON_MOD_SSSHADOWS_MAX_THICKNESS * ceil(cascade_blend.y));
+	float depth_bias = max(JON_MOD_SSSHADOWS_BIAS_NEAR * (1.0 + depth * 0.001), JON_MOD_SSSHADOWS_BIAS * ceil(cascade_blend.y));
+	float attenuation = ceil(cascade_blend.x) * step_size * JON_MOD_SSSHADOWS_ATTENUATION_NEAR;
+	
+	for (uint i = 0; i < JON_MOD_SSSHADOWS_MAX_STEPS; i++)
+	{
+		// Step the ray
+		ray_pos -= ray_step;
+		ray_uv = ray_pos.xy / ray_pos.z;
+
+		fade = abs(ray_uv);
+		
+		// Ensure the UV coordinates are inside the screen
+		if(max(fade.x, fade.y) > 1.0)
+			break;
+		
+		float depth_step = 1.0 / GetDepth(ray_uv * aspect + 0.5 + uv2clip(fract(dither)) * texel_size);
+		dither += step_size;
+		float depth_delta = ray_pos.z * 10.0 - depth_step - depth_bias;
+		
+		if(depth_delta > 0.0 && depth_delta <  thickness_threshold)
+		{
+			// Fade out as we approach the edges of the screen
+			fade				= 1.0 - saturate(fade * 100.0 - 99.0);
+			shadow				= min(fade.x, fade.y);
+			shadow				= 1 - attenuation * i;
+			break;
+		}
+
+	}
+	#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
+		if(i == JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG)
+			debug.y = shadow;
+	#endif
+	
+	return 1.0 - shadow * (cascade_blend.x + cascade_blend.y);
+}
+/////////////////////////// JON MOD UTIL FUNCTIONS //////////////////////
+//Included in the very end of common.h, that is included most anywhere
+/*
+Egosoft already got this one! and we inject after it's defined!
+float pow2(float x)
+{
+	return x*x;
+}
+*/
+float pow4(float x)
+{
+	return pow2(pow2(x));
+}
+float pow5(float x)
+{
+	return pow4(x)*x;
+}
+// from https://blog.selfshadow.com/publications/blending-in-detail/
 //nice angle corrected blend
-vec3 BlendReorientedNormals(vec3 n1, vec3 n2)
+vec3 blend_reoriented_normals(vec3 n1, vec3 n2)
 {
 
 	n1 = vec3(n1.xy, n1.z + 1.0);
@@ -2723,4 +2942,1162 @@ vec3 BlendReorientedNormals(vec3 n1, vec3 n2)
 
     return normalize(n1 * dot(n1, n2) - n2 * n1.z);
 }
-////////////////// JON MOD SETTINGS END //////////////////
+
+// Hash without Sine
+// MIT License...
+/* Copyright (c)2014 David Hoskins.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.*/
+
+//----------------------------------------------------------------------------------------
+// https://www.shadertoy.com/view/4djSRW
+//  1 out, 1 in...
+float hash11(float p)
+{
+    p = fract(p * .1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
+}
+
+//----------------------------------------------------------------------------------------
+//  1 out, 2 in...
+float hash12(vec2 p)
+{
+	vec3 p3  = fract(vec3(p.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+//----------------------------------------------------------------------------------------
+//  1 out, 3 in...
+float hash13(vec3 p3)
+{
+	p3  = fract(p3 * .1031);
+    p3 += dot(p3, p3.zyx + 31.32);
+    return fract((p3.x + p3.y) * p3.z);
+}
+//----------------------------------------------------------------------------------------
+// 1 out 4 in...
+float hash14(vec4 p4)
+{
+	p4 = fract(p4  * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.x + p4.y) * (p4.z + p4.w));
+}
+
+//----------------------------------------------------------------------------------------
+//  2 out, 1 in...
+vec2 hash21(float p)
+{
+	vec3 p3 = fract(vec3(p) * vec3(.1031, .1030, .0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx+p3.yz)*p3.zy);
+
+}
+
+//----------------------------------------------------------------------------------------
+///  2 out, 2 in...
+vec2 hash22(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yzx+33.33);
+    return fract((p3.xx+p3.yz)*p3.zy);
+
+}
+
+//----------------------------------------------------------------------------------------
+///  2 out, 3 in...
+vec2 hash23(vec3 p3)
+{
+	p3 = fract(p3 * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yzx+33.33);
+    return fract((p3.xx+p3.yz)*p3.zy);
+}
+
+//----------------------------------------------------------------------------------------
+//  3 out, 1 in...
+vec3 hash31(float p)
+{
+   vec3 p3 = fract(vec3(p) * vec3(.1031, .1030, .0973));
+   p3 += dot(p3, p3.yzx+33.33);
+   return fract((p3.xxy+p3.yzz)*p3.zyx); 
+}
+
+
+//----------------------------------------------------------------------------------------
+///  3 out, 2 in...
+vec3 hash32(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yxz+33.33);
+    return fract((p3.xxy+p3.yzz)*p3.zyx);
+}
+
+//----------------------------------------------------------------------------------------
+///  3 out, 3 in...
+vec3 hash33(vec3 p3)
+{
+	p3 = fract(p3 * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yxz+33.33);
+    return fract((p3.xxy + p3.yxx)*p3.zyx);
+
+}
+
+//----------------------------------------------------------------------------------------
+// 4 out, 1 in...
+vec4 hash41(float p)
+{
+	vec4 p4 = fract(vec4(p) * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+    
+}
+
+//----------------------------------------------------------------------------------------
+// 4 out, 2 in...
+vec4 hash42(vec2 p)
+{
+	vec4 p4 = fract(vec4(p.xyxy) * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+
+}
+
+//----------------------------------------------------------------------------------------
+// 4 out, 3 in...
+vec4 hash43(vec3 p)
+{
+	vec4 p4 = fract(vec4(p.xyzx)  * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+}
+
+//----------------------------------------------------------------------------------------
+// 4 out, 4 in...
+vec4 hash44(vec4 p4)
+{
+	p4 = fract(p4  * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+}#include <jon_mod_buffer_encoding_functions.h>
+// #define USE24BITNORMALCOMPRESSION
+
+//Lambert Azimuthal Equal-Area Projection
+vec2 EncodeNormalLA(vec3 n)
+{
+	float p = sqrt(-n.z * 8 + 8);
+	return n.xy / p + 0.5;
+}
+vec3 DecodeNormalLA(vec2 n)
+{
+	vec2 fenc = n * 4 - 2;
+	float f = dot(fenc,fenc);
+	float g = sqrt(1 - f/4);
+	return vec3(fenc * g, f/2 - 1);
+}
+
+//Stereographic Projection
+const float Normal_Stereographic_Scale = 0.3;	//TODO @Timon optimize for quality, keep in mind it affects normal blending for complex_projection*
+//WARNING: if these are changed ffx_cacao_bindings.hlsl needs to be adjusted as well
+float2 EncodeNormalSG(float3 n)
+{
+	float2 ret = n.xy / (1 - n.z);
+	ret /= Normal_Stereographic_Scale;
+//	return ret / 2 + 0.5;
+	return ret;
+}
+float3 DecodeNormalSG(float2 n)
+{
+//	float3 ret = float3(n * 2 * Normal_Stereographic_Scale - Normal_Stereographic_Scale, 1);
+	float3 ret = float3(n * Normal_Stereographic_Scale, 1);
+	float g = 2.0 / dot(ret, ret);
+	ret.xy *= g;
+	ret.z = g - 1;
+	ret.z = -ret.z;
+	return ret;
+}
+
+#if 0
+
+vec2 pack16(float value){
+    float f = clamp(value, 0.0, 1.0)*255.0;
+    float digitLow = fract(f);
+    float digitHigh = floor(f)/255.0;
+    return vec2(digitHigh, digitLow);
+}       
+    
+float unpack16(vec2 value){
+    return value.x+value.y/255.0;
+}
+
+vec4 packNormal32(in vec3 n) {
+    vec2 spheremapped = encode(n);
+	//return vec4(n, 1);
+	return vec4(spheremapped, 0, 0);
+    // return vec4(pack16(spheremapped.x), pack16(spheremapped.y));
+}
+vec3 unpackNormal32(in vec4 data) {
+	//return data.xyz;
+	return normalize(decode(data.x, data.y));
+    // return normalize(decode(unpack16(data.xy), unpack16(data.zw)));
+}
+
+// Crytek BFN
+//vec3 packBestFitNormal(in vec3 n) {
+//    vec3 np = n.xyz;
+//    // vec3 np = n.xyz*2-1;
+//    np = normalize(np);
+//    vec3 nu = abs(np);
+//    float maxNU = max(nu.z, max(nu.x, nu.y));
+//    vec2 uv = nu.z < maxNU ? (nu.y < maxNU ? nu.yz : nu.xz) : nu.xy; 
+//    uv = uv.x < uv.y ? uv.yx : uv.xy;
+//    uv.y /= uv.x;
+//    np /= maxNU;
+//    // float scale = pow(texture(T_normalfittex, uv).r, 1.0f/2);
+//     //uv.y = 1- uv.y;
+//    // float scale = texture(T_normalfittex, uv.xy + vec2(1.0f/256.0f)).r;
+//    float scale = textureLod(T_normalfittex, uv.xy, 0).r;
+//    np *= scale;
+//    // return np;
+//    np = np * 0.5 + 0.5;
+//
+//    // np = TO_linearRGB(vec4(np, 0)).xyz;
+//
+//    return np;
+//    // return np * 0.5 + 0.5; // store unsigned
+//}
+//vec3 unpackBestFitNormal(in vec3 n) {
+//	return normalize(n * 2 - 1);
+//}
+// octahedral normal encoding (http://jcgt.org/published/0003/02/01/paper.pdf)
+float signNotZero(in float k) {
+	return k >= 0.0 ? 1.0 : -1.0;
+}
+vec2 signNotZero(in vec2 v) {
+	return vec2(signNotZero(v.x), signNotZero(v.y));
+}
+vec2 octEncode(in vec3 v) {
+	float l1norm = abs(v.x) + abs(v.y) + abs(v.z);
+	vec2 result = v.xy * (1.0 / l1norm);
+	if (v.z < 0.0) {
+		result = (1.0 - abs(result.yx)) * signNotZero(result.xy);
+	}
+	return result;
+}
+
+vec3 twoNorm12sEncodedAs3Unorm8sInVec3Format(vec2 s) {
+	vec3 u;
+	u.x = s.x * (1.0 / 16.0);
+	float t = floor(s.y*(1.0 / 256));
+	u.y = (frac(u.x) * 256) + t;
+	u.z = s.y - (t * 256);
+	// Instead of a floor, you could just add vec3(-0.5) to u, 
+	// and the hardware will take care of the flooring for you on save to an RGB8 texture
+	return floor(u) * (1.0 / 255.0);
+}
+
+float packSnorm12Float(float f) {
+	return round(clamp(f + 1.0, 0.0, 2.0) * float(2047));
+}
+vec3 vec2To2Snorm12sEncodedAs3Unorm8sInVec3Format(vec2 v) {
+	vec2 s = vec2(packSnorm12Float(v.x), packSnorm12Float(v.y));
+	return twoNorm12sEncodedAs3Unorm8sInVec3Format(s);
+}
+vec3 encodeOct(in vec3 v) {
+#ifndef USE24BITNORMALCOMPRESSION
+	return v;
+#endif
+	return vec2To2Snorm12sEncodedAs3Unorm8sInVec3Format(octEncode(v));
+}
+
+// octahedral normal decoding
+vec3 finalDecode(float x, float y) {
+	vec3 v = vec3(x, y, 1.0 - abs(x) - abs(y));
+	if (v.z < 0) {
+		v.xy = (1.0 - abs(v.yx)) * signNotZero(v.xy);
+	}
+	return normalize(v);
+}
+vec2 twoNorm12sEncodedAsUVec3InVec3FormatToPackedVec2(vec3 v) {
+	vec2 s;
+	// Roll the (*255s) in during the quasi bit shifting. This causes two of the three multiplications to happen at compile time
+	float temp = v.y * (255.0 / 16.0);
+	s.x = v.x * (255.0*16.0) + floor(temp);
+	s.y = fract(temp) * (16 * 256) + (v.z * 255.0);
+	return s;
+}
+
+float unpackSnorm12(float f) {
+	return clamp((float(f) / float(2047)) - 1.0, -1.0, 1.0);
+}
+float unpackSnorm12(uint u) {
+	return unpackSnorm12(float(u));
+}
+vec2 twoSnorm12sEncodedAsUVec3InVec3FormatToVec2(vec3 v) {
+	vec2 s = twoNorm12sEncodedAsUVec3InVec3FormatToPackedVec2(v);
+	return vec2(unpackSnorm12(s.x), unpackSnorm12(s.y));
+}
+vec3 decodeOct(in vec3 p) {
+#ifndef USE24BITNORMALCOMPRESSION
+	p = normalize(p);	// the normals often aren't normal enough
+	return p;
+#endif
+	vec2 v = twoSnorm12sEncodedAsUVec3InVec3FormatToVec2(p);
+	return finalDecode(v.x, v.y);
+}
+
+// Most precise compression, only used for debug
+vec2 octPEncode(in vec3 v) {
+    float l1norm = abs(v.x) + abs(v.y) + abs(v.z);
+    vec2 result = v.xy * (1.0/l1norm);
+    if (v.z < 0.0) {
+        result = (1.0 - abs(result.yx)) * signNotZero(result.xy);
+    }
+    return result;
+}
+vec2 encodeIntoSnorm12sStoredAsVec2(vec3 v) {
+    vec3 normv = normalize(v);
+    vec2 s = octPEncode(normv);
+    s = floor(clamp(s, -1.0, 1.0) * 2047 ) * ( 1.0 / 2047 );
+
+    // Prime the loop
+    vec2 bestRepresentation = s;
+    float highestCosine = dot(finalDecode(s.x, s.y), normv);
+    for (int i = 0; i < 2; ++i) {
+            for (int j = 0; j < 2; ++j) {
+                // This branch will be evaluated at compile time
+                if ( (i != 0) || (j != 0) ) {
+                    vec2 candidate = vec2(i,j) * (1.0 / 2047 ) + s;
+                    vec3 roundTrip = finalDecode(candidate.x, candidate.y);
+
+                    float cosine = dot(roundTrip, normv);
+                    if (cosine > highestCosine) {
+                        bestRepresentation = candidate;
+                        highestCosine      = cosine;
+                    }
+                }
+            }
+    }
+    return bestRepresentation;
+}
+vec3 encodeOct2(in vec3 v) {
+    return vec2To2Snorm12sEncodedAs3Unorm8sInVec3Format(encodeIntoSnorm12sStoredAsVec2(v));
+}
+
+#endif
+
+//WARNING: if these are changed ffx_cacao_bindings.hlsl needs to be adjusted as well
+void UniWriteNormal(out vec4 col, vec3 normal)
+{
+	normal = mat3(M_view) * normal;
+	col.xyz = normal;
+//	col.xy = EncodeNormalLA(normal);
+	col.xy = EncodeNormalSG(normal);
+// 	col.z = 0;
+}
+void UniReadNormal(vec4 col, out vec3 normal)
+{
+	normal = col.xyz;
+// 	normal = NormalReZ(normal);
+//	normal = DecodeNormalLA(col.xy);
+	normal = DecodeNormalSG(col.xy);
+//	normal = mat3(M_view) * col.xyz;
+}
+
+void UniReadNormalRaw(vec4 col, out vec3 normal)
+{
+	normal = col.xyz;
+// 	normal = NormalReZ(normal);
+//	normal = DecodeNormalLA(col.xy);
+	normal = DecodeNormalSG(col.xy);
+	normal = mat3(M_viewinverse) * normal;
+}
+
+/************************************************************************
+    Position from zbuffer
+************************************************************************/
+
+void RetrieveZBufferViewPos(out vec3 view_pos, in vec2 uv)
+{
+    // todo: somehow make sure that this is nooped when z writes are enabled
+    if(!B_deferred_draw)
+	{
+#ifdef OVERRIDE_DEPTH
+        vec4 p = M_invprojection * vec4(uv*2-1, RTResolve(OVERRIDE_DEPTH, uv).r, 1);
+#else
+        vec4 p = M_invprojection * vec4(uv*2-1, RTResolve(T_zdepth, uv).r, 1);
+#endif
+        view_pos = p.xyz / p.w;
+    }
+}
+
+void RetrieveZBufferViewPos(out vec3 view_pos)
+{
+//	RetrieveZBufferViewPos(view_pos, gl_FragCoord.xy / V_viewportpixelsize.xy);
+	//TODO @Timon the above doesn't work when rendering with a smaller viewport (most RenderTargets),
+	//iirc the above is only used by ssao so maybe refactor to use a generic version with an offset? or something
+	if(!B_deferred_draw) {
+#ifdef OVERRIDE_DEPTH
+		vec4 p = M_invprojection * vec4(gl_FragCoord.xy / V_viewportpixelsize.xy*2 - 1, RTResolve(OVERRIDE_DEPTH).r, 1);
+#else
+		vec4 p = M_invprojection * vec4(gl_FragCoord.xy / V_viewportpixelsize.xy*2 - 1, RTResolve(T_zdepth).r, 1);
+#endif
+		view_pos = p.xyz / p.w;
+	}
+}
+
+/************************************************************************
+	GBUFFER access
+************************************************************************/
+
+// full gbuffer read, mainly for ssr
+#define RETRIEVE_GBUFFER(NORMAL, BASECOLOR, METAL, SMOOTH) \
+{ \
+	RETRIEVE_GBUFFER_NORMAL0(NORMAL); \
+	RETRIEVE_GBUFFER_BASECOLOR(BASECOLOR); \
+	RETRIEVE_GBUFFER_METAL_SMOOTH(METAL, SMOOTH); \
+}
+
+#define RETRIEVE_GBUFFER_NORMAL0(NORMAL0) \
+{ \
+	vec4 data0 = RTResolve(T_gbuffer3); \
+	UniReadNormal(data0, NORMAL0);	\
+}
+
+#define RETRIEVE_GBUFFER_BASECOLOR(BASECOLOR) \
+{ \
+	vec4 data1 =  RTResolve(T_gbuffer2); \
+	BASECOLOR.rgb = data1.rgb; \
+}
+#define RETRIEVE_GBUFFER_METAL_SMOOTH(METAL, SMOOTH) \
+{ \
+	vec4 data =  RTResolve(T_gbuffer4); \
+	SMOOTH = data.r; \
+	METAL = data.g; \
+}
+
+#define RETRIEVE_GBUFFER_UV_NORMAL0(UV, NORMAL0) \
+{ \
+	vec4 data = RTResolve(T_gbuffer3, UV); \
+	UniReadNormal(data, NORMAL0);	\
+}
+
+#define RETRIEVE_GBUFFER_UV_SMOOTH(UV, SMOOTH) \
+{ \
+	vec4 data = RTResolve(T_gbuffer4, UV); \
+	SMOOTH = data.r; \
+}
+
+#define RETRIEVE_GBUFFER_UV_NORMAL0_SMOOTH(UV, NORMAL0, SMOOTH) \
+{ \
+	vec2 _uv = (UV);			\
+	RETRIEVE_GBUFFER_UV_NORMAL0(_uv, NORMAL0)	\
+	RETRIEVE_GBUFFER_UV_SMOOTH(_uv, SMOOTH)	\
+}
+
+
+/************************************************************************
+	legacy gbuffer access
+************************************************************************/
+// depending on final gbuffer layout, cherry picked access
+
+void RetrieveGBufferNormal(out vec3 normal, in vec2 uv) {
+	normal = vec3(0,0,1);
+    if(!B_deferred_draw) {
+		RETRIEVE_GBUFFER_UV_NORMAL0(uv, normal);
+    }
+}
+
+// mainly for compability with code using old gbuffer layout
+void RetrieveGBufferNormalViewZ(out vec3 normal, out float view_z, in vec2 uv) {
+	normal = vec3(0,0,1);
+	view_z = 0;
+    // deferred draws are not allowed to read g/zbuffer
+    if(!B_deferred_draw) {
+        vec3 view_pos;
+        RetrieveZBufferViewPos(view_pos, uv);
+        view_z = view_pos.z;
+		RETRIEVE_GBUFFER_UV_NORMAL0(uv, normal);
+    }
+}
+
+// mainly for compability with code using old gbuffer layout
+void RetrieveGBufferViewZ(out float view_z) {
+    view_z = 0;
+    // todo: check if this is problematic for transparent draws with z write
+    // maybe use downsampled depth?
+    if(!B_deferred_draw) {
+        vec3 view_pos;
+        RetrieveZBufferViewPos(view_pos);
+        view_z = view_pos.z;
+    }
+}
+
+/************************************************************************
+	Renderpass input gbuffer access
+************************************************************************/
+
+#ifdef MAIN_MSAA
+vec4 RI_SubpassLoad(in subpassInputMS inputattachment)
+{
+	#ifdef PER_SAMPLE
+	return subpassLoad(inputattachment, gl_SampleID);
+	#else
+	return subpassLoad(inputattachment, 0);
+	#endif
+}
+#else
+vec4 RI_SubpassLoad(in subpassInput inputattachment)
+{
+	return subpassLoad(inputattachment);
+}
+#endif
+
+#define RI_GBUFFER(NORMAL, BASECOLOR, METAL, SMOOTH) \
+{ \
+	RI_GBUFFER_NORMAL0(NORMAL); \
+	RI_GBUFFER_BASECOLOR(BASECOLOR); \
+	RI_GBUFFER_METAL_SMOOTH(METAL, SMOOTH);	\
+}
+
+#define RI_GBUFFER_RAW(NORMAL, BASECOLOR, METAL, SMOOTH) \
+{ \
+	RI_GBUFFER_NORMAL0_RAW(NORMAL); \
+	RI_GBUFFER_BASECOLOR(BASECOLOR); \
+	RI_GBUFFER_METAL_SMOOTH(METAL, SMOOTH);	\
+}
+
+#define RI_GBUFFER_NORMAL0(NORMAL0) \
+{ \
+	vec4 data0 = RI_SubpassLoad(Input_gbuffer3); \
+	UniReadNormal(data0, NORMAL0);	\
+}
+
+#define RI_GBUFFER_NORMAL0_RAW(NORMAL0) \
+{ \
+	vec4 data0 = RI_SubpassLoad(Input_gbuffer3); \
+	UniReadNormalRaw(data0, NORMAL0);	\
+}
+
+#define RI_GBUFFER_BASECOLOR(BASECOLOR) \
+{ \
+	vec4 data1 = RI_SubpassLoad(Input_gbuffer2); \
+	BASECOLOR.rgb = data1.rgb; \
+}
+
+#define RI_GBUFFER_METAL_SMOOTH(METAL, SMOOTH) \
+{ \
+	vec2 data = RI_SubpassLoad(Input_gbuffer4).rg; \
+	SMOOTH = data.r; \
+	METAL = data.g; \
+}
+
+#define RI_GBUFFER_NORMAL_Z(DATA) RI_GBufferNormalViewZ(DATA.xyz, DATA.w);
+void RI_GBufferNormalViewZ(out vec3 normal, out float view_z) {
+	normal = vec3(0, 0, 1);
+	view_z = 0;
+	// deferred draws are not allowed to read g/zbuffer
+	if (!B_deferred_draw) {
+		vec3 view_pos;
+		RetrieveZBufferViewPos(view_pos);
+		view_z = view_pos.z;
+		
+		RI_GBUFFER_NORMAL0(normal);
+	}
+}
+
+#define RI_GBUFFER_PBR(DATA) RI_GBufferPBR(DATA.x, DATA.y);
+void RI_GBufferPBR(out float smoothness, out float metalness)
+{
+	RI_GBUFFER_METAL_SMOOTH(metalness, smoothness);
+}
+
+/************************************************************************
+	OUTPUT thing
+************************************************************************/
+// let the engine choose between gbuffer output for full deferred lighting
+// or simple mainlight lighting for non-deferred solids+transparents
+
+#define STORE_GBUFFER(NORMAL, ALBEDO, METAL, SMOOTH, GLOW) \
+{ \
+	OUT_Color = vec4(GLOW, 1);				\
+	OUT_Color1 = vec4(ALBEDO, 1);	\
+	OUT_Color2 = vec4(0, 0, 0, 1);			\
+	UniWriteNormal(OUT_Color2, NORMAL);		\
+	OUT_Color3 = vec4(SMOOTH, METAL, 0, 1);			\
+}
+
+#define STORE_GBUFFERA(A, NORMAL, ALBEDO, METAL, SMOOTH, GLOW) \
+{ \
+	OUT_Color = vec4(GLOW, A);				\
+	OUT_Color1 = vec4(ALBEDO, A);	\
+	OUT_Color2 = vec4(0, 0, 0, A);			\
+	UniWriteNormal(OUT_Color2, NORMAL);		\
+	OUT_Color3 = vec4(SMOOTH, METAL, 0, A);	\
+}
+
+#define DEFERRED_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW) \
+{ \
+	STORE_GBUFFERA(A, N, ALBEDO, METAL, SMOOTH, GLOW); \
+}
+
+#define GENERAL_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW) \
+{ \
+    if (B_deferred_draw) { \
+		DEFERRED_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW);	\
+	} \
+	else { \
+		OUT_Color.a = (A); \
+		OUT_Color.rgb = (GLOW) + global_lights(N, GetFragView(), ALBEDO, METAL, smooth2rough(SMOOTH), false); \
+	} \
+}
+
+#define GENERAL_OUTPUT(N, ALBEDO, METAL, SMOOTH, GLOW) GENERAL_OUTPUTA(ColorBaseDiffuse.a * F_alphascale, N, ALBEDO, METAL, SMOOTH, GLOW)
+
+
+#define DEFERRED_OVERLAY_ALPHA8(A, N_pp, ALBEDO, METAL, SMOOTH, GLOW) \
+{ \
+	OUT_Color = vec4(GLOW, 0);					\
+	OUT_Color1 = vec4(ALBEDO, A);		\
+	OUT_Color2 = vec4(CalcViewNormalOffset(N_pp), 0, A);	\
+	OUT_Color3 = vec4(SMOOTH, METAL, 0, A);	\
+}
+
+#define P1_SHADERS
+#include <common.fh>
+
+in float IO_radius;
+in vec3 IO_center;
+in vec4 IO_worldviewpos;
+
+#ifdef LPASS_BLEND_DEBUG
+in vec4 IO_lightcolor;
+#endif
+
+void main()
+{
+	OUT_Color = vec4(0);
+	OUT_Color.a = 1;
+	
+	vec3 view_pos;
+	RetrieveZBufferViewPos(view_pos);
+
+	if (view_pos.z > BGDIST) {
+	//	OUT_Color.r = 1;	return;
+		discard;
+	}
+
+	vec4 finalColor = vec4(0);
+
+	vec3 wn;
+	vec3 Albedo;
+	float Metalness;
+	float Smoothness;
+	RI_GBUFFER_RAW(wn, Albedo, Metalness, Smoothness);
+	float Roughness = smooth2rough(Smoothness);
+
+	vec3 cspec = vec3(0);
+	vec3 cdiff = vec3(0);
+
+	#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+		float Subsurface = 0.0;
+		UnpackMetalSubsurface(Metalness, Subsurface);
+	#endif
+
+	get_colors(Albedo, Metalness, cspec, cdiff);
+
+	float ambient_occlusion = GetSSAO();//TODO @Timon/Florian maybe it'd just be better to go back to the traditional subtract later in the frame...
+
+	// PositionWS: vector from camera to pixel in world-space
+// 	vec3 PositionWS = view_pos * mat3(M_view);
+// 	PositionWS += V_cameraposition.xyz;
+	vec3 PositionWS = view2world(view_pos);
+	float3 PositionLS = EnvMapMulMatrix(M_envmapprobe_world, PositionWS);
+// 	DebugStore(PositionLS); 	return;
+
+	float blend = EnvMapFading(PositionLS);
+
+	// apply lod fade-out
+	blend *= U_fade_lod;
+
+	// wv: direction from from pixel to camera in world-space
+	vec3 wv = normalize(-view_pos) * mat3(M_view);
+	float v_dot_n = saturate(dot(wv, wn));
+	// smaller cone at edges to highlight fresnel
+	
+	//Jon Note, this is not a good idea, the energy intensity that you think you're simulating should already be covered in the fresnel term.
+	#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
+		float ambRoughness = Roughness;
+	#else
+		// smaller cone at edges to highlight fresnel
+		float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
+		//ambRoughness = Roughness; // deactivated, effect too strong
+	#endif	
+	
+	float ssr = 0;
+	if (U_pass) {
+		ssr = SSR_GetHit(RTResolveSoft(T_ssr).a); // this seems like the least stupid way to get proper diffuse envmap probes while keeping specular SSR?:/
+	}
+	{
+		vec3 R = reflect(-wv, wn);
+		R = EnvMapAdjust(PositionWS, R);
+
+		float n_dot_v = saturate(dot(wn, wv));
+		vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+		spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+		vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+
+		finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+		finalColor.a = spec_amb.a;
+		finalColor.a = saturate(finalColor.a);
+	}
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(GetViewPos().x > 0.0)
+		{
+	#endif
+	
+		float behind_terminator = saturate(dot(wv, wn) * 1000.0); //the specular models break when you see the backside of a normal mapped detail, that you technically shouldn't be able to see.
+		OUT_Color.rgb *= behind_terminator;	//TODO why is there a double ambient_occlusion multiply?!
+
+	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		}
+	#endif	
+	
+#ifdef LPASS_BLEND_DEBUG
+	OUT_Color.rgb = IO_lightcolor.rgb;
+	OUT_Color.a = 1;
+	OUT_Color *= saturate(1 - ssr);	//arguable whether we want to know how ssr behaves?
+#else
+	OUT_Color.rgb = finalColor.rgb;
+	OUT_Color.a = finalColor.a;
+#endif
+	OUT_Color *= blend;
+}
+
+#include <common.fh>
+
+const int baselvl = 1;
+
+float ambRoughness;
+
+uint ray_axis;
+uint ray_other;
+float ray_ofact;
+float ray_ooff;
+float ray_zfact;
+float ray_zoff;
+
+// float ray_dfact;	//ray distance for each step
+
+int starti;
+
+float i2lvl(int i)
+{
+	float sm = saturate(1.0f - ambRoughness);
+// 	float dist = ray_dfact * abs(i - starti);
+	float dist = abs(i - starti);
+// 	float dist = abs(i - starti);
+	dist = saturate(dist / (sm * 2000.0f));
+// 	dist = pow2(dist);
+// 	dist = sqrt(dist);
+// 	dist = 0.0f;
+	float f = 0;
+	f += dist;
+	f += 0.2f * ambRoughness;
+	f = saturate(f);
+	return f * U_size;
+}
+
+float getz(int i, int lvl)
+{
+	ivec2 pix;
+	pix[ray_axis] = i;
+	pix[ray_other] = int(i * ray_ofact + ray_ooff);
+	
+	float z = texelFetch(T_maindepth_mips, pix >> lvl, lvl - baselvl).x;
+	return z;
+}
+
+uint getflags(int i, int lvl)
+{
+	ivec2 pix;
+	pix[ray_axis] = i;
+	pix[ray_other] = int(i * ray_ofact + ray_ooff);
+	
+	uint flags = texelFetch(T_flags, pix >> lvl, lvl).r;
+	return flags;
+}
+
+vec2 getuv(int i)
+{
+	vec2 pix;
+	pix[ray_axis] = i;
+	pix[ray_other] = int(i * ray_ofact + ray_ooff);
+	return pix / (V_viewportpixelsize.xy * 2);
+}
+
+vec4 TAA_color = vec4(0);
+float TAA_mix = 1.0f;
+void TAA_OUT(vec3 col, vec2 hit_dist)
+{
+// 	OUT_Color = col;	return;
+// 	OUT_Color = vec4(col, SSR_Encode(hit_dist));	return;
+	vec2 ohd = SSR_Decode(TAA_color.a);
+	ohd.y = hit_dist.y;//TODO @Timon distance broken by interpolated fetch so ignore
+	OUT_Color.rgb = mix(TAA_color.rgb, col.rgb, TAA_mix);
+	OUT_Color.a = SSR_Encode(mix(ohd, hit_dist, TAA_mix));
+}
+
+void TAA_OUT()
+{
+	TAA_OUT(vec3(0), vec2(0));
+}
+
+void main()
+{
+	OUT_Color = vec4(0);
+// 	OUT_Color.rgb = textureLod(T_maincolor_last, GetFragUV(), 0).rgb;	return;
+	
+	
+	vec2 pix_uv = GetFragUV();
+	vec2 pix_ss = uv2clip(pix_uv);
+	
+	vec2 vpsize = V_viewportpixelsize.xy * 2;	//we're rendering at half-res but we want the full-res to be tha basis
+	
+	vec3 view_pos;
+	RetrieveZBufferViewPos(view_pos, pix_uv);
+	if (view_pos.z > BGDIST) {
+// 		OUT_Color.r = 1;
+		return;
+	}
+// 	OUT_Color.rgb = view_pos;	OUT_Color.a = 1;	return;
+// 	TAA_OUT(vec4(view_pos, 1));	return;
+	
+	#if 1
+	{
+		vec4 reproj;
+	//	reproj = vec4(uv2clip(pix_uv), gl_FragCoord.z, 1);
+		if (IsStationary(GetFlags(pix_uv))) {
+			reproj.xy = pix_uv;
+			TAA_mix = 0.3;
+		}
+		else {
+			reproj = vec4(Project(view_pos), 1);
+			reproj = M_texturematrix0 * reproj;
+			reproj /= reproj.w;
+			reproj.xy = clip2uv(reproj.xy);
+			vec2 dist = abs(reproj.xy - pix_uv);
+			TAA_mix = 0.1 + 0.7 * ( smoothstep(0, 8.0 / V_viewportpixelsize.x, dist.x + dist.y));
+		}
+		if (U_pass != 0) {
+			TAA_color = textureLod(S_input_rt, reproj.xy, 0);//TODO @Timon interpolated fetch effectively breaks distance info
+			if (any(isnan(TAA_color)) || any(isinf(TAA_color))) {
+				TAA_color = vec4(0);
+			}
+		}
+		else {
+			TAA_mix = 1;
+			TAA_color = vec4(0);
+		}
+// 		TAA_mix = 0.1;
+// 		OUT_Color = vec4(vec3(TAA_mix), 0);		return;
+		//TODO @Timon don't TAA for stationary objects
+	}
+	#endif
+	
+	float constfade = 1;
+	vec3 normal;
+	float smoothness;
+	RETRIEVE_GBUFFER_UV_NORMAL0_SMOOTH(pix_uv, normal, smoothness);
+	
+	if (any(isnan(normal))) {
+		TAA_OUT();
+		return;
+	}
+	else if (any(isinf(normal))) {
+		TAA_OUT();
+		return;
+	}
+	
+// 	OUT_Color.rgb = normal;		return;
+	
+	vec3 ray = reflect(normalize(view_pos), normal);
+// 	OUT_Color.rgb = ray;		return;
+	if (ray.z < -0.4) {//rays facing camera are unlikely to hit something sensible
+// 		OUT_Color.g = 1;
+		//TODO @Timon many cases where this is too much:/
+// 		return;
+	}
+	if (ray.z < -0.2) {
+		constfade = smoothstep(-0.4, -0.2, ray.z);
+	}
+	float Roughness = smooth2rough(smoothness);
+	
+	float v_dot_n = saturate(dot(view_pos, normal));
+	// smaller cone at edges to highlight fresnel
+	#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
+		ambRoughness = Roughness;
+	#else
+		ambRoughness = mix(Roughness*0.75, Roughness, pow(v_dot_n, 1.0/3.0));
+	#endif
+	
+// 	if (Roughness >= 0.5) //don't bother for really rough surfaces since it'll have very little impact
+// 		return;
+	
+	{
+		vec2 pos;
+		{
+			switch(int(U_offset + pix_ss.x + pix_ss.y) % 8) {
+			case 0:		pos[0] = 0.5000f;	pos[1] = 0.3333f;	break;	//halton
+			case 1:		pos[0] = 0.2500f;	pos[1] = 0.6667f;	break;
+			case 2:		pos[0] = 0.7500f;	pos[1] = 0.1111f;	break;
+			case 3:		pos[0] = 0.1250f;	pos[1] = 0.4444f;	break;
+			case 4:		pos[0] = 0.6250f;	pos[1] = 0.7778f;	break;
+			case 5:		pos[0] = 0.3750f;	pos[1] = 0.2222f;	break;
+			case 6:		pos[0] = 0.8750f;	pos[1] = 0.5555f;	break;
+			case 7:		pos[0] = 0.0625f;	pos[1] = 0.8889f;	break;
+			}
+			pos *= vec2(2);
+			pos -= vec2(1);
+		}
+		float scale = 0.01f + 0.2f * (ambRoughness);
+		scale *= 0.05f;
+		scale *= saturate(1.0f - TAA_mix);
+		view_pos.xy += pos * scale;
+	}
+	vec3 view0_cs = Project(view_pos);
+	vec3 view1_cs = Project(view_pos + ray);
+	vec3 view0_uv = vec3(clip2uv(view0_cs.xy), view0_cs.z);
+	vec3 view1_uv = vec3(clip2uv(view1_cs.xy), view1_cs.z);
+// 	vec3 view0_pix = vec3(view0_uv.xy * vpsize.xy, view0_uv.z);
+	vec3 view0_pix = vec3(gl_FragCoord.xy * 2, view0_uv.z);
+	vec3 view1_pix = vec3(view1_uv.xy * vpsize.xy, view1_uv.z);
+// 	vec3 ray_cs = view1_cs - view0_cs;
+// 	vec3 ray_uv = view1_uv - view0_uv;
+	vec3 ray_pix = view1_pix - view0_pix;
+// 	ray_uv.xy = clip2uv(view1_cs.xy) - clip2uv(view0_cs.xy);
+// 	vec3 ray_uv = clip2uv(ray_cs);
+// 	ray_pix = normalize(ray_pix);
+	
+// 	OUT_Color.rg = abs(view0_pix.xy - gl_FragCoord.xy * 2);
+// 	OUT_Color.rg *= 1000;
+// 	OUT_Color.rgb = ray_cs;
+// 	OUT_Color.rgb = ray_pix;
+// 	return;
+	{
+		if (abs(ray_pix.y) >= abs(ray_pix.x)) {
+			ray_axis = 1;
+			ray_other = 0;
+		}
+		else {
+			ray_axis = 0;
+			ray_other = 1;
+		}
+		
+// 		ray_dfact = length(ray) / abs(ray_pix[ray_axis]);
+		ray_pix /= vec3(abs(ray_pix[ray_axis]));
+// 		OUT_Color.rgb = ray_pix; 	return;
+		
+		ray_ofact = ray_pix[ray_other] / ray_pix[ray_axis];
+		ray_ooff = view0_pix[ray_other] - ray_ofact * view0_pix[ray_axis];
+		
+		ray_zfact = ray_pix[2] / ray_pix[ray_axis];
+		ray_zoff = view0_pix[2] - ray_zfact * view0_pix[ray_axis];
+		
+// 		ray_dfact = length(ray) / abs(ray_pix[ray_axis]);
+		//TODO @Timon ray_dfact is clearly 1, for it to really make sense it'd have to be above the first divide, but arguably it looks better this way since you always get a certain amount of it as a percentage of the screensize (except it's steps, so resolution dependent TODO @Timon at least fix that)
+	}
+/*	if (abs(ray_pix[ray_axis]) < 0.999) {
+		OUT_Color.rb = vec2(1);
+		return;
+	}/**/
+	
+	starti = int(view0_pix[ray_axis]);
+	int i = starti;
+	int dir = int(1.1 * ray_pix[ray_axis]);	//often the ray is just barely below 1
+	if (IsComplex(getflags(i, 1))) {
+		TAA_OUT();
+		return;
+	}
+/*	{
+		OUT_Color.rgba = vec4(0);
+// 		OUT_Color[ray_axis] = float(abs(dir)) / 2;
+		OUT_Color[ray_axis] = abs(ray_ofact);
+		if (OUT_Color[ray_axis] > 1) {
+			OUT_Color.b = 1;
+		}
+		return;
+	}/**/
+	
+	int lvl = baselvl;
+	
+	uint a = 0;
+	uint end = 400;
+	
+	i += dir << lvl;	//otherwise insta-hit when right cheek is against the wall
+	uint abort = 0;
+	for (; a < end; ++a) {
+		int mask = (1 << lvl) - 1;
+		int pi = i;
+		i += 1 * (dir << lvl);
+		int minlvl = baselvl;
+// 		minlvl = 4;
+// 		minlvl = max(minlvl, int(i2lvl(i)));
+		
+		float walk_z_near;
+		float walk_z_far;
+		vec3 walk_pix = vec3(0.0);
+		walk_pix[ray_axis] = i;
+		walk_pix[ray_other] = i * ray_ofact + ray_ooff;
+		{
+			int inext = i;
+			int iprev = pi;
+			if (dir > 0) {
+				inext |= mask;
+				iprev &= ~mask;
+			}
+			else {
+				inext &= ~mask;
+				iprev |= mask;
+			}
+			if (dir * ray_zfact <= 0) {
+				walk_z_far = inext * ray_zfact + ray_zoff;
+				walk_z_near = iprev * ray_zfact + ray_zoff;
+			}
+			else {
+				walk_z_near = inext * ray_zfact + ray_zoff;
+				walk_z_far = iprev * ray_zfact + ray_zoff;
+			}
+		}
+		float hit_z = texelFetch(T_maindepth_mips, ivec2(walk_pix.xy) >> (lvl - 0), lvl - baselvl).x;
+		if (hit_z - walk_z_far >= 0) {
+// 			minlvl = clamp(minlvl, baselvl, 4);
+			if (lvl <= minlvl)
+			{
+				if (hit_z < BGZ) {
+					TAA_OUT();
+					return;//don't reflect background the envmap will do it better
+				}
+				uint flags = 0;
+				flags = getflags(i, lvl);
+				if (!IsComplexDepth(flags)) {
+					bool reproject = true;
+					if ((flags & FLAG_STATIONARY) != 0) {
+						reproject = false;
+					}
+					float threshold = 0;
+					float slope_fact = 0;
+					{
+						float zn = getz(i + (dir << lvl), lvl);
+						float zp = getz(i - 2 * (dir << lvl), lvl);
+						
+						float sn = zn - hit_z;
+						float sp = hit_z - zp;
+						
+						if (abs(sp - sn) < 0.06 * hit_z)
+						{
+							threshold = abs(sp);
+						}/**/
+					}/**/
+					if (hit_z - walk_z_near <= threshold)
+					{
+						{
+							vec3 n;
+							RetrieveGBufferNormal(n, getuv(i));
+							if (dot(ray, n) >= 0) {
+								TAA_OUT();
+								return;
+							}
+						}
+						vec4 reproj;
+						if (reproject) {
+							reproj = vec4(uv2clip(walk_pix.xy / (vpsize.xy)), hit_z, 1);
+							reproj = M_texturematrix0 * reproj;
+							reproj /= reproj.w;
+							reproj.xy = clip2uv(reproj.xy);
+						}
+						else {
+							reproj.xy = walk_pix.xy / (vpsize.xy);
+						}
+						float reslvl = 0;
+// 						reslvl = minlvl;
+// 						reslvl = i2lvl(i);
+// 						reslvl = min(reslvl, 6);
+						
+						float fade = 1;
+						{
+							int outi = i + 40 * (dir << lvl);
+							vec2 out_pix;
+							out_pix[ray_axis] = outi;
+							out_pix[ray_other] = outi * ray_ofact + ray_ooff;
+							
+							vec2 tmp = uv2clip(out_pix.xy / vpsize.xy);
+							tmp = abs(tmp);
+							tmp = 1 - saturate(tmp);
+							
+							fade = tmp.x * tmp.y;
+							fade = smoothstep(0.0, 0.1, fade);
+	// 						OUT_Color.rgb = vec3(fade);			return;
+						}
+	// 					OUT_Color.rg = reproj.xy;
+	// 					OUT_Color.b = TO_linearRGB(slope_fact) * 1000000;
+	// 					OUT_Color.b = TO_linearRGB(ray_dfact * abs(i - starti) / 1000.0f);
+	// 					OUT_Color.b = TO_linearRGB(reslvl / U_size);
+						vec3 outcol;
+						outcol = textureLod(T_maincolor_last, reproj.xy, reslvl).rgb;
+						outcol = min(outcol, vec3(2.0f));	//limit extremely bright reflections a bit
+						
+						if (any(isnan(outcol)) || any(isinf(outcol))/**/) {//TODO @Timon remove
+							TAA_OUT();
+							return;
+						}
+						TAA_OUT(outcol, vec2(fade, float(abs(i - starti)) / 1000));
+						return;
+					}
+ #if defined(QUALITY_MEDIUM) || defined(QUALITY_HIGH)
+					if (++abort > 32)	//this will not break if only a few pixels are blocking (it's mostly to handle the damn rail guards around docks:/)	//TODO @Timon maybe use higher mips as heuristic?
+ #endif
+					{
+						TAA_OUT();
+						return;
+					}
+				}
+// 				OUT_Color.g = 1;
+// 				return;
+			}
+			else
+			{
+				i -= dir << lvl;
+				--lvl;
+			}
+		}
+		else {
+			if (i <= 0 || i >= vpsize[ray_axis] - 1) {
+// 				OUT_Color.b = 1;
+				TAA_OUT();
+				return;
+			}
+			if (lvl < 6) {
+				++lvl;
+			}
+		}
+	}
+	TAA_OUT();
+}

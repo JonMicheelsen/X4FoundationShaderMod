@@ -1458,6 +1458,7 @@ float4 calc_Strauss_PBR(	CONST float3 N,
 	
 #endif
 
+#include <jon_mod_lighting_functions.h>
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr, vec4 prev)
 {
@@ -1501,6 +1502,10 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	// shadows for mainlight
 	float Shadow = 0.0f;
 	vec4 test = vec4(0);
+#ifdef JON_MOD_SSSHADOWS
+	float fade = 0.0;
+#endif 		
+	
 #ifndef DISABLE_SHADOW_HELPERS
 #ifndef DISABLE_SHADOW_SUPPORT
 	if (B_shadow && direct_occlusions[0] > 0.0f) {
@@ -1510,8 +1515,11 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		if (F_shadowmaxdistance < 6000.0f) {
 			FADE_STR_DIST = 0.7;
 		}
-
-		float fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#ifdef JON_MOD_SSSHADOWS
+			fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#else
+			float fade = saturate((length(view_pos) - (1.0 - FADE_STR) * F_shadowmaxdistance) / (FADE_STR_DIST * F_shadowmaxdistance));
+		#endif
 
 		vec4 coords[5];
 		coords[0] = mul(float4(view_pos, 1), M_shadowCSM0);
@@ -1549,7 +1557,9 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 
 	// light accumulation
 	vec3 light_accum = vec3(0);
-
+#ifdef JON_MOD_SSSHADOWS
+	vec3 ss_shadow_debug = vec3(0.0);
+#endif	
 	// dirlights
 	for(int i=0; i<2; i++) {
 		//float n_dot_l = saturate(dot(Normal, ldirs[i]));
@@ -1558,6 +1568,41 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//	direct_occlusion *= Shadow;
 		//}
 		CONST float light_radius = V_deferred_lightparams.x*10; // dbg scale
+
+		float ss_shadow = 1.0;
+		
+		#ifdef JON_MOD_SSSHADOWS
+			float fade_near = saturate(-(length(view_pos) - JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR) / (JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR * 0.5));
+			fade = max(fade, saturate((length(view_pos) - (1.0 - 0.1) * JON_MOD_SSSHADOWS_FADE_DISTANCE) / (0.5 * JON_MOD_SSSHADOWS_FADE_DISTANCE)));
+			#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
+				ss_shadow_debug.r = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG] * (fade_near + fade);
+				ss_shadow_debug.b = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG];
+			#endif
+			//screenspace shadow
+			if((direct_occlusions[i] * (fade_near + fade)) > 0.0)
+			{
+				#ifndef JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS
+				if(i > 0)
+					break;
+				#endif
+				
+				#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+					if(GetViewPos().x > 0.0)
+				#endif
+				ss_shadow = ScreenSpaceShadows(	world2view_rot(-ldirs[i]), 
+															vec2(fade_near, fade), 
+															ss_shadow_debug, 
+															i);
+			}
+			#ifdef JON_MOD_SSSHADO_FILTER
+				#if 1
+					ss_shadow = mix(ss_shadow, 0.5, saturate((fwidth(ss_shadow))));
+				#else
+					ss_shadow = mix(ss_shadow, 0.5, saturate(max(abs(dFdxFine(ss_shadow)), abs(dFdyFine(ss_shadow)))));
+				#endif
+			#endif
+		#endif
+		direct_occlusions[i] *= ss_shadow;
 
 		// todo: slightly refactor the following
 		vec3 L;
@@ -1574,15 +1619,28 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//light_accum += cdiff / PI * E_diffuse; // diffuse
 		light_accum += cdiff * E_diffuse; // diffuse
 	}
-	
 	{// ambient light
 		// reduce roughness based on v_dot_n yields nicer fresnel contours
 		float v_dot_n = saturate(dot(wv, wn));
 		
-		// smaller cone at edges to highlight fresnel
-		float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
-		//ambRoughness = Roughness; // deactivated, effect too strong
-		
+		/*
+		Jon Note if anyone from Egosoft ever reads this, I would stronly recommend against this!! 
+		None of the AAA engines does it. It leads to insane levels of specular aliasing, even with TAA.
+		And the high anisotropic strething reflections you're trying to acomplish with it can't be achieved like this.
+		It is technically possible to stretch the derivatives for a textureCUBEgrad() however. ;)
+		*/
+		#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				float ambRoughness = GetViewPos().x > 0.0 ? Roughness : mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));	
+			#else				
+				float ambRoughness = Roughness;
+			#endif
+		#else
+			// smaller cone at edges to highlight fresnel
+			float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
+			//ambRoughness = Roughness; // deactivated, effect too strong
+		#endif		
+
 		// vec3 spec_amb =  simple_spec_brdf_ibl(T_ibl_envmap, cspec, Roughness, wn, wv);
 		// vec3 spec_amb =  spec_brdf_ibl(T_ibl_envmap, vec3(0,0,0), T_preintegrated_GGX, cspec, ambRoughness, wn, wv);
 		vec3 Eamb = V_ambient1.rgb;
@@ -1615,7 +1673,10 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	}
 	
 	light_accum = clamp(light_accum.rgb, 0, 10); // safety clamp, not visible
-	return DEFERRED_HACK_TO_sRGB(light_accum) * ambient_occlusion * vec3(0.0, 1.0, 0.0);	//TODO why is there a double ambient_occlusion multiply?!
+	#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
+		light_accum = ss_shadow_debug;
+	#endif
+	return DEFERRED_HACK_TO_sRGB(light_accum) * ambient_occlusion;	//TODO why is there a double ambient_occlusion multiply?!
 }
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr)
