@@ -66,14 +66,14 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 			if(GetFragUV().x > 0.5)
 			{		
-				Smooth = 1.0 - pow2(1.0 - Smooth * JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
+				Smooth = 1.0 - pow2((1.0 - Smooth) * (1.0 - JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE) + JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
 			}
 			else
 			{
 				Smooth = Smooth;
 			}
 		#else
-			Smooth = 1.0 - pow2(1.0 - Smooth * JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
+			Smooth = 1.0 - pow2((1.0 - Smooth) * (1.0 - JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE) + JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE);
 		#endif
 	#endif
 }

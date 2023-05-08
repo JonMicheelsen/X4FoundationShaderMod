@@ -462,7 +462,10 @@ void RI_GBufferPBR(out float smoothness, out float metalness)
 
 #define GENERAL_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW) \
 { \
-    if (B_deferred_draw) { \
+ 	MetalStrict(METAL);	\
+	PackMetal(METAL);	\
+	RoughnessRemapSmoothVersion(SMOOTH);	\
+   if (B_deferred_draw) { \
 		DEFERRED_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW);	\
 	} \
 	else { \
@@ -476,6 +479,9 @@ void RI_GBufferPBR(out float smoothness, out float metalness)
 
 #define DEFERRED_OVERLAY_ALPHA8(A, N_pp, ALBEDO, METAL, SMOOTH, GLOW) \
 { \
+	MetalStrict(METAL);	\
+	PackMetal(METAL);	\
+	RoughnessRemapSmoothVersion(SMOOTH);	\
 	OUT_Color = vec4(GLOW, 0);					\
 	OUT_Color1 = vec4(ALBEDO, A);		\
 	OUT_Color2 = vec4(CalcViewNormalOffset(N_pp), 0, A);	\
