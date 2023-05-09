@@ -488,3 +488,22 @@ void RI_GBufferPBR(out float smoothness, out float metalness)
 	OUT_Color3 = vec4(SMOOTH, METAL, 0, A);	\
 }
 
+#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+
+	#define GENERAL_OUTPUTA_SUBSURFACE(A, N, ALBEDO, METAL, SUBSURFACE, SMOOTH, GLOW) \
+	{ \
+		MetalStrict(METAL);	\
+		PackMetalSubsurface(METAL, SUBSURFACE);	\
+		RoughnessRemapSmoothVersion(SMOOTH);	\
+		if (B_deferred_draw) { \
+			DEFERRED_OUTPUTA(A, N, ALBEDO, METAL, SMOOTH, GLOW);	\
+		} \
+		else { \
+			OUT_Color.a = (A); \
+			OUT_Color.rgb = (GLOW) + global_lights(N, GetFragView(), ALBEDO, METAL, smooth2rough(SMOOTH), false); \
+		} \
+	}
+	
+	#define GENERAL_OUTPUT_SUBSURFACE(N, ALBEDO, METAL, SUBSURFACE, SMOOTH, GLOW) GENERAL_OUTPUTA_SUBSURFACE(ColorBaseDiffuse.a * F_alphascale, N, ALBEDO, METAL, SUBSURFACE, SMOOTH, GLOW)
+	
+#endif

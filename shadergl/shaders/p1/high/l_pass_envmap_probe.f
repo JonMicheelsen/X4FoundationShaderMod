@@ -33,12 +33,6 @@ void main()
 
 	vec3 cspec = vec3(0);
 	vec3 cdiff = vec3(0);
-
-	#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
-		float Subsurface = 0.0;
-		UnpackMetalSubsurface(Metalness, Subsurface);
-	#endif
-
 	get_colors(Albedo, Metalness, cspec, cdiff);
 
 	float ambient_occlusion = GetSSAO();//TODO @Timon/Florian maybe it'd just be better to go back to the traditional subtract later in the frame...
@@ -68,7 +62,7 @@ void main()
 		float ambRoughness = mix(Roughness*0.3, Roughness, pow(v_dot_n, 1.0/3.0));
 		//ambRoughness = Roughness; // deactivated, effect too strong
 	#endif	
-	
+
 	float ssr = 0;
 	if (U_pass) {
 		ssr = SSR_GetHit(RTResolveSoft(T_ssr).a); // this seems like the least stupid way to get proper diffuse envmap probes while keeping specular SSR?:/
@@ -86,18 +80,7 @@ void main()
 		finalColor.a = spec_amb.a;
 		finalColor.a = saturate(finalColor.a);
 	}
-	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
-		if(GetViewPos().x > 0.0)
-		{
-	#endif
-	
-		float behind_terminator = saturate(dot(wv, wn) * 1000.0); //the specular models break when you see the backside of a normal mapped detail, that you technically shouldn't be able to see.
-		OUT_Color.rgb *= behind_terminator;	//TODO why is there a double ambient_occlusion multiply?!
 
-	#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
-		}
-	#endif	
-	
 #ifdef LPASS_BLEND_DEBUG
 	OUT_Color.rgb = IO_lightcolor.rgb;
 	OUT_Color.a = 1;
