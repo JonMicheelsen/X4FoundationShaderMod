@@ -25,7 +25,7 @@
 #define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
 	#define JON_MOD_USE_AMBIENT_DIFFUSE_TRICKS
 	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
-	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION //don't know if this needs it since it already parallax corrects. Now it can be turned off seperately
+	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION //don't know if this needs it since it already parallax corrects. Now it can be turned off seperately.
 	
 #define JON_MOD_USE_LUMINANCE_FRESNEL
 	#define JON_MOD_USE_STRICTER_N_DOT_V

@@ -331,7 +331,14 @@ void main()
 		float diffndotl = saturate(dot(Normal, ldiff));
 		vec3 cspec = vec3(0);
 		vec3 cdiff = vec3(0);
-		get_colors(Albedo, Metalness, cspec, cdiff);
+		get_colors(Albedo, Me
+
+		#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+			float Subsurface = 0.0;
+			UnpackMetalSubsurface(Metalness, Subsurface);
+		#endif
+	
+		talness, cspec, cdiff);
 
 		float Roughness = smooth2rough(Smoothness);//was Smoothness*Smoothness - changed for consistency
 

@@ -277,6 +277,10 @@ void main()
 		float diffndotl = saturate(dot(Normal, ldiff));
 		vec3 cspec = vec3(0);
 		vec3 cdiff = vec3(0);
+		#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+			float Subsurface = 0.0;
+			UnpackMetalSubsurface(Metalness, Subsurface);
+		#endif
 		get_colors(Albedo, Metalness, cspec, cdiff);
 
 		float Roughness = smooth2rough(Smoothness);//was Smoothness*Smoothness - changed for consistency
@@ -339,7 +343,6 @@ void main()
 		horizon *= horizon;
 		horizon *= horizon;
 		specatten = specatten - specatten * horizon;
-
 
 		// specular contribution
 		vec3 Ispec = IO_SpecIntensity * IO_lightcolor.rgb * specatten * n_dot_l;

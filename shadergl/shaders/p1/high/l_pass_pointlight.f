@@ -56,10 +56,14 @@ void main()
 	
 	vec3 cspec = vec3(0);
 	vec3 cdiff = vec3(0);
+	#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
+		float Subsurface = 0.0;
+		UnpackMetalSubsurface(Metalness, Subsurface);
+	#endif
 	get_colors(Albedo, Metalness, cspec, cdiff);
-#ifndef LOCALSPEC
-	cspec *= 0.0f;
-#endif
+	#ifndef LOCALSPEC
+		cspec *= 0.0f;
+	#endif
 
 	float radius = IO_radius*0.9;
 	float a = pow(saturate(1.0f-pow(LightDistance/radius,4.0f)), 2.0f);
@@ -68,7 +72,8 @@ void main()
 	
 	float4 finalColor;
 	
-	//TODO @Timon this is all so wrong, but historical reasons...
+	//Jon :P, know the feeling!
+	//TODO @Timon this is all so wrong, but historical reasons... 
 #ifdef LOCALSPEC
 	finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec2(1, IO_SpecularIntensity)) * IO_lightcolor.rgb * n_dot_l;
 #else
