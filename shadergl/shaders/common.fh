@@ -1643,7 +1643,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 
 		// vec3 spec_amb =  simple_spec_brdf_ibl(T_ibl_envmap, cspec, Roughness, wn, wv);
 		// vec3 spec_amb =  spec_brdf_ibl(T_ibl_envmap, vec3(0,0,0), T_preintegrated_GGX, cspec, ambRoughness, wn, wv);
-		vec3 Eamb = V_ambient1.rgb;
+		vec3 Eamb = V_ambient1.rgb;//Flat color in the age of PBR :(
 
 		//TODO SSR has higher priority!
 		vec4 ssr = vec4(0);
@@ -1659,17 +1659,40 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 // 			ssr.rgb *= (cspec*env_brdf.x + env_brdf.y);
 		}
 
-		float a = ssr.a;
-		vec3 first_sum = a * ssr.rgb;
-
-		a += prev.a;
-		first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
-		first_sum += Eamb;
-		vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
-		vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
-
-		light_accum += (spec_amb + diff_amb) * ambient_occlusion;
-
+		#ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(GetViewPos().x > 0.0)
+				{
+					light_accum += combined_ambient_brdf(T_ibl_envmap, cspec, cdiff, wn, wv, ambRoughness, ambient_occlusion, ssr, Eamb);
+				}
+				else
+				{
+					float a = ssr.a;
+					vec3 first_sum = a * ssr.rgb;
+			
+					a += prev.a;
+					first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
+					first_sum += Eamb;
+					vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
+					vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
+			
+					light_accum += (spec_amb + diff_amb) * ambient_occlusion;			
+				}
+			#else
+				light_accum += combined_ambient_brdf(T_ibl_envmap, cspec, cdiff, wn, wv, ambRoughness, ambient_occlusion, ssr, Eamb);
+			#endif
+		#else
+			float a = ssr.a;
+			vec3 first_sum = a * ssr.rgb;
+	
+			a += prev.a;
+			first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
+			first_sum += Eamb;
+			vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
+			vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
+	
+			light_accum += (spec_amb + diff_amb) * ambient_occlusion;
+		#endif
 	}
 	
 	light_accum = clamp(light_accum.rgb, 0, 10); // safety clamp, not visible

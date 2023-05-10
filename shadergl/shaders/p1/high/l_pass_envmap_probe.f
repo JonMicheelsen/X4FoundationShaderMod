@@ -65,22 +65,44 @@ void main()
 
 	float ssr = 0;
 	if (U_pass) {
+		//Jon comment, I've seen worse :P
 		ssr = SSR_GetHit(RTResolveSoft(T_ssr).a); // this seems like the least stupid way to get proper diffuse envmap probes while keeping specular SSR?:/
 	}
+
 	{
 		vec3 R = reflect(-wv, wn);
 		R = EnvMapAdjust(PositionWS, R);
-
-		float n_dot_v = saturate(dot(wn, wv));
-		vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
-		spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
-		vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
-
-		finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
-		finalColor.a = spec_amb.a;
-		finalColor.a = saturate(finalColor.a);
+		#ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(GetViewPos().x > 0.0)
+				{
+					finalColor = combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, wn, wv, R, ambRoughness, ambient_occlusion, ssr);
+				}
+				else
+				{	
+					float n_dot_v = saturate(dot(wn, wv));
+					vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+					spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+					vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+			
+					finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+					finalColor.a = spec_amb.a;
+					finalColor.a = saturate(finalColor.a);
+				}
+			#else
+				finalColor = combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, wn, wv, R, ambRoughness, ambient_occlusion, ssr);
+			#endif
+		#else	
+			float n_dot_v = saturate(dot(wn, wv));
+			vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+			spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+			vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+	
+			finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+			finalColor.a = spec_amb.a;
+			finalColor.a = saturate(finalColor.a);
+		#endif
 	}
-
 #ifdef LPASS_BLEND_DEBUG
 	OUT_Color.rgb = IO_lightcolor.rgb;
 	OUT_Color.a = 1;

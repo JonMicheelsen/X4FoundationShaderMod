@@ -1643,7 +1643,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 
 		// vec3 spec_amb =  simple_spec_brdf_ibl(T_ibl_envmap, cspec, Roughness, wn, wv);
 		// vec3 spec_amb =  spec_brdf_ibl(T_ibl_envmap, vec3(0,0,0), T_preintegrated_GGX, cspec, ambRoughness, wn, wv);
-		vec3 Eamb = V_ambient1.rgb;
+		vec3 Eamb = V_ambient1.rgb;//Flat color in the age of PBR :(
 
 		//TODO SSR has higher priority!
 		vec4 ssr = vec4(0);
@@ -1659,17 +1659,40 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 // 			ssr.rgb *= (cspec*env_brdf.x + env_brdf.y);
 		}
 
-		float a = ssr.a;
-		vec3 first_sum = a * ssr.rgb;
-
-		a += prev.a;
-		first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
-		first_sum += Eamb;
-		vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
-		vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
-
-		light_accum += (spec_amb + diff_amb) * ambient_occlusion;
-
+		#ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(GetViewPos().x > 0.0)
+				{
+					light_accum += combined_ambient_brdf(T_ibl_envmap, cspec, cdiff, wn, wv, ambRoughness, ambient_occlusion, ssr, Eamb);
+				}
+				else
+				{
+					float a = ssr.a;
+					vec3 first_sum = a * ssr.rgb;
+			
+					a += prev.a;
+					first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
+					first_sum += Eamb;
+					vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
+					vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
+			
+					light_accum += (spec_amb + diff_amb) * ambient_occlusion;			
+				}
+			#else
+				light_accum += combined_ambient_brdf(T_ibl_envmap, cspec, cdiff, wn, wv, ambRoughness, ambient_occlusion, ssr, Eamb);
+			#endif
+		#else
+			float a = ssr.a;
+			vec3 first_sum = a * ssr.rgb;
+	
+			a += prev.a;
+			first_sum += saturate(1 - a) * spec_first_sum_ibl(T_ibl_envmap, ambRoughness, wn, wv).rgb;
+			first_sum += Eamb;
+			vec3 spec_amb = spec_brdf(first_sum, cspec, ambRoughness, v_dot_n);
+			vec3 diff_amb = saturate(1 - prev.a) * cdiff * (get_irradiance(T_ibl_envmap, wn) + Eamb);
+	
+			light_accum += (spec_amb + diff_amb) * ambient_occlusion;
+		#endif
 	}
 	
 	light_accum = clamp(light_accum.rgb, 0, 10); // safety clamp, not visible
@@ -2819,7 +2842,10 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 //	#define JON_MOD_SUBSURFACE_EPIDERMAL_F0 0.0224f
 
 #define JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL//This upgrades EvalBRDF() to include this https://advances.realtimerendering.com/s2018/MaterialAdvancesInWWII-course_notes.pdf Which UE5 also uses.
-
+	#define JON_MOD_USE_AMBIENT_DIFFUSE_TRICKS
+	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION //don't know if this needs it since it already parallax corrects. Now it can be turned off seperately
+	
 #define JON_MOD_USE_LUMINANCE_FRESNEL
 	#define JON_MOD_USE_STRICTER_N_DOT_V
 	#define JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS //Indeed it was, un-fuck-up-ing it up :D
@@ -2931,7 +2957,7 @@ vec3 schlick_f(vec3 cspec, float v_dot_h)
 		if(GetViewPos().x < 0.0)
 			return f + (1-f) * cspec;
 	#endif	
-	return saturate(50.0 * dot(LUM_ITU601, cspec)) * f + (1.0 - f) * cspec;
+	return min(50.0 * dot(LUM_ITU601, cspec), 1.0) * f + (1.0 - f) * cspec;
 }
 // https://advances.realtimerendering.com/s2018/index.htm
 // It has been extended here to fade out retro reflectivity contribution from area light in order to avoid visual artefacts.
@@ -2957,9 +2983,103 @@ vec3 chan_diff(vec3 cdiff, float a2, float n_dot_v, float n_dot_l, float v_dot_h
 			return cdiff * (1.0 / PI) * saturate(1.0f - dot(LUM_ITU601, cspec));
 	#endif
 		
-	return cdiff * ((1.0 / PI) * (fd + fb));
+	return cdiff * (INVPI * (fd + fb));
 	
 }
+// https://iryoku.com/downloads/Practical-Realtime-Strategies-for-Accurate-Indirect-Occlusion.pdf
+vec3 muli_bounce_ambient_occlusion(vec3 cdiff, float ambient_occlusion)
+{
+
+	vec3 a = 2.0404 * cdiff - 0.3324;
+	vec3 b = -4.7951 * cdiff + 0.6417;
+	vec3 c = 2.7552 * cdiff + 0.6903;
+	return max(vec3(ambient_occlusion), ((ambient_occlusion * a + b) * ambient_occlusion + c) * ambient_occlusion);
+}
+// Point lobe in off-specular peak direction and specular occlusion from Unreal - but they got it from somwhere else, forgotten where, think I first encountered it in a Marmoset IBL article, that heavily quated the Frostbite PBR paper...?
+vec3 off_specular_peak(vec3 normal, vec3 reflection, float roughness_sr)
+{
+	return mix(normal, reflection, (1.0 - roughness_sr) * (sqrt(1.0 - roughness_sr) + roughness_sr));	
+}
+float get_specular_occlusion(float n_dot_v, float roughness_sr, float ambient_occlusion)
+{
+	return clamp(pow(n_dot_v + ambient_occlusion, roughness_sr) - 1.0 + ambient_occlusion, 0.0, 1.0);
+}
+
+int max_spec_level_less_strict(samplerCube filtered_env_map)
+{
+	return textureQueryLevels(filtered_env_map) - 3;//Egosoft, You had -2 in yours, that's 4x4 pixels. I would not recommend at least 8x8
+}
+
+
+vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff, vec3 normal, vec3 view, float roughness, float ambient_occlusion, vec4 ssr, vec3 flat_diffuse_addition)
+{
+	int lowest_mip = max_spec_level_less_strict(filtered_env_map);
+	float n_dot_v = dot(normal, view);
+	vec3 reflection = view - 2.0 * normal * n_dot_v;//view and normal are both normalized, so we don't need to too.
+	n_dot_v = max(0.0, n_dot_v);
+	//chan_diffuse is now baked into to T_preintegrated_GGX b channel
+	vec3 env_brdfs = textureLod(T_preintegrated_GGX, vec2(roughness, n_dot_v), 0).xyz;
+	
+	float roughness_sr = roughness * roughness;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		reflection = off_specular_peak(normal, reflection, roughness_sr);
+	#endif
+	vec4 specular_ibl = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
+	vec3 ambient_specular = mix(specular_ibl.rgb, ssr.rgb, ssr.a);
+
+	ambient_specular *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_specular *= get_specular_occlusion(n_dot_v, roughness_sr, ambient_occlusion);
+	#else
+		ambient_specular *= ambient_occlusion;
+	#endif
+
+	vec3 ambient_diffuse = textureLod(filtered_env_map, normal, lowest_mip).rgb + flat_diffuse_addition;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_diffuse *= (cdiff * muli_bounce_ambient_occlusion(cdiff, ambient_occlusion)) * env_brdfs.b;	
+	#else
+		ambient_diffuse *= ambient_occlusion;
+	#endif
+	return ambient_specular + ambient_diffuse;
+}
+
+//l_pass_envmap_probe.f version
+vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff, vec3 normal, vec3 view, vec3 reflection, float roughness, float ambient_occlusion, float ssr_alpha)
+{
+	int lowest_mip = max_spec_level_less_strict(filtered_env_map);
+	float n_dot_v = dot(normal, view);
+
+	n_dot_v = max(0.0, n_dot_v);
+	//chan_diffuse is now baked into to T_preintegrated_GGX b channel
+	vec3 env_brdfs = textureLod(T_preintegrated_GGX, vec2(roughness, n_dot_v), 0).xyz;
+	
+	float roughness_sr = roughness * roughness;
+		
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION
+		reflection = off_specular_peak(normal, reflection, roughness_sr);
+	#endif
+	vec4 ambient_specular = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
+	return vec4(0.0);
+
+	ambient_specular.rgb *= (1.0 - ssr_alpha);
+	ambient_specular.rgb *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
+	
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_specular.rgb *= get_specular_occlusion(n_dot_v, roughness_sr, ambient_occlusion);
+	#else
+		ambient_specular.rgb *= ambient_occlusion;
+	#endif
+
+	vec3 ambient_diffuse = textureLod(filtered_env_map, normal, lowest_mip).rgb;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_diffuse *= (cdiff * muli_bounce_ambient_occlusion(cdiff, ambient_occlusion)) * env_brdfs.b;	
+	#else
+		ambient_diffuse *= ambient_occlusion;
+	#endif
+	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
+
+}
+
 #define _JON_MOD_LIGHTING_FUNCTIONS_
 #endif
 /////////////////////////// JON MOD UTIL FUNCTIONS //////////////////////
@@ -3651,6 +3771,119 @@ void RI_GBufferPBR(out float smoothness, out float metalness)
 	
 	#define GENERAL_OUTPUT_SUBSURFACE(N, ALBEDO, METAL, SUBSURFACE, SMOOTH, GLOW) GENERAL_OUTPUTA_SUBSURFACE(ColorBaseDiffuse.a * F_alphascale, N, ALBEDO, METAL, SUBSURFACE, SMOOTH, GLOW)
 	
+#endif#define P1_SHADERS
+#include <common.fh>
+
+#ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+vec3 integrate_GGX_and_retroreflective_diffuse(float roughness, float n_dot_v)
+{
+  vec3 normal = vec3(0.0f, 0.0f, 1.0f);
+
+  vec3 view = vec3(sqrt(1.0f - n_dot_v * n_dot_v), 0, n_dot_v);
+  float a = 0.0f; float b = 0.0f; float c = 0.0f;
+  CONST uint num_samples = 512u;
+  for(uint i=0u; i< num_samples; ++i)
+  {
+	vec2 uv = hammersley_2d(i, num_samples);
+	
+	vec3 half_dir = importance_sample_GGX(uv, roughness, normal);
+	vec3 light = 2 * dot(view, half_dir) * half_dir - view;
+	float n_dot_l = max(0.0f, light.z);
+	// float n_dot_l = light.z;
+	float n_dot_h = clamp(half_dir.z, 0.0f, 1.0f);
+	// float n_dot_h = half_dir.z;
+	float v_dot_h = clamp(dot(view, half_dir), 0.0f, 1.0f);
+	// float v_dot_h = dot(view, half_dir);
+	if( n_dot_l > 0.0f)
+	// if( true )
+	{
+		
+		float k = (roughness*roughness)/2;
+		float G = G_Smith(k, n_dot_v, n_dot_l);
+		// float G = G_smith(roughness, n_dot_v, n_dot_l);
+	
+		float G_vis = G * v_dot_h / (n_dot_h * n_dot_v);
+		// G_vis = Vis_Smith(roughness, n_dot_v, n_dot_l);
+		// float G_vis = G / (4.0f*n_dot_l*n_dot_v);
+		float F_c = pow(1.0f - v_dot_h, 5);
+		// float F0 = 0.5f; // reflectance at normal incidence
+		// float F_c = F0 + (1-F0)*pow( 1.0f - v_dot_h, 5 );
+		a += (1.0f - F_c) * G_vis;
+		b += F_c * G_vis;
+
+		// we can throw the retroreflective diffuse BRDF in here!
+		float a2 = roughness*roughness;
+		float g = saturate((1.0 / 18.0) * log2(2.0 / a2 - 1.0));
+		float f0 = (v_dot_h + pow5(1.0 - v_dot_h));
+		float fdv = (1.0 - 0.75 * pow5(1.0 - n_dot_v));
+		float fdl = (1.0 - 0.75 * pow5(1.0 - n_dot_l));
+	
+		// Rough (f0) to smooth (fdv * fdv) response interpolation
+		float fd = mix(f0, fdv * fdl, saturate(2.2 * g - 0.5));
+		
+		// Retro reflectivity contribution.
+		float fb = ((34.5 * g - 59.0) * g + 24.5) * v_dot_h * exp2(-max(73.2 * g - 21.2, 8.9) * sqrt(n_dot_h));
+		c += (fd + fb) * n_dot_l;
+	}
+	
+  }
+  return vec3(a, b, c) / num_samples;
+}
+
+void main()
+{
+  	OUT_Color = vec4(0);
+    OUT_Color.xyz = integrate_GGX_and_retroreflective_diffuse(IO_uv0.x, IO_uv0.y);
+  	// OUT_Color = vec4(IO_uv0, 1, 1);
+}
+#else
+vec2 integrate_GGX(float roughness, float n_dot_v)
+{
+  vec3 normal = vec3(0.0f, 0.0f, 1.0f);
+
+  vec3 view = vec3(sqrt(1.0f - n_dot_v * n_dot_v), 0, n_dot_v);
+  float a = 0.0f; float b = 0.0f;
+  CONST uint num_samples = 32u;
+  for(uint i=0u; i< num_samples; ++i)
+  {
+    vec2 uv = hammersley_2d(i, num_samples);
+
+    vec3 half_dir = importance_sample_GGX(uv, roughness, normal);
+    vec3 light = 2 * dot(view, half_dir) * half_dir - view;
+    float n_dot_l = max(0.0f, light.z);
+    // float n_dot_l = light.z;
+    float n_dot_h = clamp(half_dir.z, 0.0f, 1.0f);
+    // float n_dot_h = half_dir.z;
+    float v_dot_h = clamp(dot(view, half_dir), 0.0f, 1.0f);
+    // float v_dot_h = dot(view, half_dir);
+
+    if( n_dot_l > 0.0f)
+    // if( true )
+    {
+      float k = (roughness*roughness)/2;
+      float G = G_Smith(k, n_dot_v, n_dot_l);
+      // float G = G_smith(roughness, n_dot_v, n_dot_l);
+
+      float G_vis = G * v_dot_h / (n_dot_h * n_dot_v);
+      // G_vis = Vis_Smith(roughness, n_dot_v, n_dot_l);
+      // float G_vis = G / (4.0f*n_dot_l*n_dot_v);
+      float F_c = pow(1.0f - v_dot_h, 5);
+      // float F0 = 0.5f; // reflectance at normal incidence
+      // float F_c = F0 + (1-F0)*pow( 1.0f - v_dot_h, 5 );
+      a += (1.0f - F_c) * G_vis;
+      b += F_c * G_vis;
+    }
+  }
+  return vec2(a, b) / num_samples;
+}
+
+void main()
+{
+  	OUT_Color = vec4(0);
+    OUT_Color.xy = integrate_GGX(IO_uv0.x, IO_uv0.y);
+  	// OUT_Color = vec4(IO_uv0, 1, 1);
+}
+	
 #endif/************************************************************************
     Lighting things
 ************************************************************************/
@@ -3893,9 +4126,6 @@ vec4 spec_first_sum_ibl(samplerCube filtered_env_map, float roughness, vec3 norm
 	// sqrt to compensate for precision shift
 	float sqrtrough = (roughness); //sqrt(roughness);
 	//TODO @Timon/Florian/Markus that sqrt was important for correctness, we should look into un-fuck-up-ing it
-	#ifdef JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS
-		sqrtrough = sqrt(sqrtrough);//why did you guys remove it, you already use pow all over the place, same same!?
-	#endif
 	return textureLod(filtered_env_map, R, MaxSpecularLevel(filtered_env_map) * sqrtrough);
 }
 
@@ -3904,9 +4134,6 @@ vec4 spec_first_sum_ibl(samplerCube filtered_env_map, float roughness, vec3 refl
 	// sqrt to compensate for precision shift
 	float sqrtrough = (roughness); //sqrt(roughness);
 	//TODO @Timon/Florian/Markus that sqrt was important for correctness, we should look into un-fuck-up-ing it
-	#ifdef JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS
-		sqrtrough = sqrt(sqrtrough);//why did you guys remove it, you already use pow all over the place, same same!?
-	#endif
 
 	return textureLod(filtered_env_map, reflectdir, MaxSpecularLevel(filtered_env_map) * sqrtrough);
 }
@@ -5233,22 +5460,44 @@ void main()
 
 	float ssr = 0;
 	if (U_pass) {
+		//Jon comment, I've seen worse :P
 		ssr = SSR_GetHit(RTResolveSoft(T_ssr).a); // this seems like the least stupid way to get proper diffuse envmap probes while keeping specular SSR?:/
 	}
+
 	{
 		vec3 R = reflect(-wv, wn);
 		R = EnvMapAdjust(PositionWS, R);
-
-		float n_dot_v = saturate(dot(wn, wv));
-		vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
-		spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
-		vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
-
-		finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
-		finalColor.a = spec_amb.a;
-		finalColor.a = saturate(finalColor.a);
+		#ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(GetViewPos().x > 0.0)
+				{
+					finalColor = combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, wn, wv, R, ambRoughness, ambient_occlusion, ssr);
+				}
+				else
+				{	
+					float n_dot_v = saturate(dot(wn, wv));
+					vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+					spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+					vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+			
+					finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+					finalColor.a = spec_amb.a;
+					finalColor.a = saturate(finalColor.a);
+				}
+			#else
+				finalColor = combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, wn, wv, R, ambRoughness, ambient_occlusion, ssr);
+			#endif
+		#else	
+			float n_dot_v = saturate(dot(wn, wv));
+			vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+			spec_amb.rgb *= saturate(1 - ssr);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+			vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+	
+			finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+			finalColor.a = spec_amb.a;
+			finalColor.a = saturate(finalColor.a);
+		#endif
 	}
-
 #ifdef LPASS_BLEND_DEBUG
 	OUT_Color.rgb = IO_lightcolor.rgb;
 	OUT_Color.a = 1;

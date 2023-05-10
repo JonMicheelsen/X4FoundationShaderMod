@@ -240,9 +240,6 @@ vec4 spec_first_sum_ibl(samplerCube filtered_env_map, float roughness, vec3 norm
 	// sqrt to compensate for precision shift
 	float sqrtrough = (roughness); //sqrt(roughness);
 	//TODO @Timon/Florian/Markus that sqrt was important for correctness, we should look into un-fuck-up-ing it
-	#ifdef JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS
-		sqrtrough = sqrt(sqrtrough);//why did you guys remove it, you already use pow all over the place, same same!?
-	#endif
 	return textureLod(filtered_env_map, R, MaxSpecularLevel(filtered_env_map) * sqrtrough);
 }
 
@@ -251,9 +248,6 @@ vec4 spec_first_sum_ibl(samplerCube filtered_env_map, float roughness, vec3 refl
 	// sqrt to compensate for precision shift
 	float sqrtrough = (roughness); //sqrt(roughness);
 	//TODO @Timon/Florian/Markus that sqrt was important for correctness, we should look into un-fuck-up-ing it
-	#ifdef JON_MOD_USE_ROUGHNESS_SQRT_PROBE_ROUGHNESS
-		sqrtrough = sqrt(sqrtrough);//why did you guys remove it, you already use pow all over the place, same same!?
-	#endif
 
 	return textureLod(filtered_env_map, reflectdir, MaxSpecularLevel(filtered_env_map) * sqrtrough);
 }

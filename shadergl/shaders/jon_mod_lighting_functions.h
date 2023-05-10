@@ -77,7 +77,7 @@ vec3 schlick_f(vec3 cspec, float v_dot_h)
 		if(GetViewPos().x < 0.0)
 			return f + (1-f) * cspec;
 	#endif	
-	return saturate(50.0 * dot(LUM_ITU601, cspec)) * f + (1.0 - f) * cspec;
+	return min(50.0 * dot(LUM_ITU601, cspec), 1.0) * f + (1.0 - f) * cspec;
 }
 // https://advances.realtimerendering.com/s2018/index.htm
 // It has been extended here to fade out retro reflectivity contribution from area light in order to avoid visual artefacts.
@@ -103,8 +103,102 @@ vec3 chan_diff(vec3 cdiff, float a2, float n_dot_v, float n_dot_l, float v_dot_h
 			return cdiff * (1.0 / PI) * saturate(1.0f - dot(LUM_ITU601, cspec));
 	#endif
 		
-	return cdiff * ((1.0 / PI) * (fd + fb));
+	return cdiff * (INVPI * (fd + fb));
 	
 }
+// https://iryoku.com/downloads/Practical-Realtime-Strategies-for-Accurate-Indirect-Occlusion.pdf
+vec3 muli_bounce_ambient_occlusion(vec3 cdiff, float ambient_occlusion)
+{
+
+	vec3 a = 2.0404 * cdiff - 0.3324;
+	vec3 b = -4.7951 * cdiff + 0.6417;
+	vec3 c = 2.7552 * cdiff + 0.6903;
+	return max(vec3(ambient_occlusion), ((ambient_occlusion * a + b) * ambient_occlusion + c) * ambient_occlusion);
+}
+// Point lobe in off-specular peak direction and specular occlusion from Unreal - but they got it from somwhere else, forgotten where, think I first encountered it in a Marmoset IBL article, that heavily quated the Frostbite PBR paper...?
+vec3 off_specular_peak(vec3 normal, vec3 reflection, float roughness_sr)
+{
+	return mix(normal, reflection, (1.0 - roughness_sr) * (sqrt(1.0 - roughness_sr) + roughness_sr));	
+}
+float get_specular_occlusion(float n_dot_v, float roughness_sr, float ambient_occlusion)
+{
+	return clamp(pow(n_dot_v + ambient_occlusion, roughness_sr) - 1.0 + ambient_occlusion, 0.0, 1.0);
+}
+
+int max_spec_level_less_strict(samplerCube filtered_env_map)
+{
+	return textureQueryLevels(filtered_env_map) - 3;//Egosoft, You had -2 in yours, that's 4x4 pixels. I would not recommend at least 8x8
+}
+
+
+vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff, vec3 normal, vec3 view, float roughness, float ambient_occlusion, vec4 ssr, vec3 flat_diffuse_addition)
+{
+	int lowest_mip = max_spec_level_less_strict(filtered_env_map);
+	float n_dot_v = dot(normal, view);
+	vec3 reflection = view - 2.0 * normal * n_dot_v;//view and normal are both normalized, so we don't need to too.
+	n_dot_v = max(0.0, n_dot_v);
+	//chan_diffuse is now baked into to T_preintegrated_GGX b channel
+	vec3 env_brdfs = textureLod(T_preintegrated_GGX, vec2(roughness, n_dot_v), 0).xyz;
+	
+	float roughness_sr = roughness * roughness;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		reflection = off_specular_peak(normal, reflection, roughness_sr);
+	#endif
+	vec4 specular_ibl = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
+	vec3 ambient_specular = mix(specular_ibl.rgb, ssr.rgb, ssr.a);
+
+	ambient_specular *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_specular *= get_specular_occlusion(n_dot_v, roughness_sr, ambient_occlusion);
+	#else
+		ambient_specular *= ambient_occlusion;
+	#endif
+
+	vec3 ambient_diffuse = textureLod(filtered_env_map, normal, lowest_mip).rgb + flat_diffuse_addition;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_diffuse *= (cdiff * muli_bounce_ambient_occlusion(cdiff, ambient_occlusion)) * env_brdfs.b;	
+	#else
+		ambient_diffuse *= ambient_occlusion;
+	#endif
+	return ambient_specular + ambient_diffuse;
+}
+
+//l_pass_envmap_probe.f version
+vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff, vec3 normal, vec3 view, vec3 reflection, float roughness, float ambient_occlusion, float ssr_alpha)
+{
+	int lowest_mip = max_spec_level_less_strict(filtered_env_map);
+	float n_dot_v = dot(normal, view);
+
+	n_dot_v = max(0.0, n_dot_v);
+	//chan_diffuse is now baked into to T_preintegrated_GGX b channel
+	vec3 env_brdfs = textureLod(T_preintegrated_GGX, vec2(roughness, n_dot_v), 0).xyz;
+	
+	float roughness_sr = roughness * roughness;
+		
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION
+		reflection = off_specular_peak(normal, reflection, roughness_sr);
+	#endif
+	vec4 ambient_specular = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
+	return vec4(0.0);
+
+	ambient_specular.rgb *= (1.0 - ssr_alpha);
+	ambient_specular.rgb *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
+	
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_specular.rgb *= get_specular_occlusion(n_dot_v, roughness_sr, ambient_occlusion);
+	#else
+		ambient_specular.rgb *= ambient_occlusion;
+	#endif
+
+	vec3 ambient_diffuse = textureLod(filtered_env_map, normal, lowest_mip).rgb;
+	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
+		ambient_diffuse *= (cdiff * muli_bounce_ambient_occlusion(cdiff, ambient_occlusion)) * env_brdfs.b;	
+	#else
+		ambient_diffuse *= ambient_occlusion;
+	#endif
+	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
+
+}
+
 #define _JON_MOD_LIGHTING_FUNCTIONS_
 #endif
