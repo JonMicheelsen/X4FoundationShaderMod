@@ -90,8 +90,13 @@ void main()
 #ifndef LOCALSPEC
 	cspec = cspec * 0.0f;
 #endif
+	#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+		vec3 lightcolor = vec3(1.0, 0.0, 1.0);
+	#else	
+		vec3 lightcolor = IO_lightcolor.rgb;
+	#endif
 	
-	vec3 clight = IO_lightcolor.rgb;
+	vec3 clight = lightcolor;
 
 	float diffuse_occlusion = 1.0f;
 	if (B_ssao_enabled) {

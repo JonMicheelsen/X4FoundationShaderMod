@@ -44,14 +44,27 @@
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 25cm
 	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //0.5cm
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.2 //2cm
-	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 10.0m
+	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 25.0m
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
 //pending implementation
-//#define JON_MOD_SSSHADOWS_POINTLIGHTS
-
-#define JON_MOD_DEBUG_GREY_WORLD
+#define JON_MOD_SSSHADOWS_POINT
+	#define JON_MOD_SSSHADOWS_POINT_MAX_STEPS 32.0
+	#define JON_MOD_SSSHADOWS_POINT_RAY_MAX_DISTANCE 0.25
+	#define JON_MOD_POINT_SSSHADOWS_MAX_THICKNESS 1.0
+	#define JON_MOD_SSSHADOWS_POINT_BIAS 0.1
+	#define JON_MOD_SSSHADOWS_POINT_ATTENUATION 1.0
+	
+//#define JON_MOD_DEBUG_GREY_WORLD
+//#define JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+// aqua = l_pass_arealight_gen.f
+// yellow = l_pass_arealight.f
+// magenta = l_pass_boxlight.f
+// green = l_pass_pointlight.f
+// blue = l_pass_spotlight.f
+// red = l_star_light1.
+//#define JON_MOD_DEBUG_DISABLE_AMBIENT_LIGHT
 //debugs
 //#define JON_MOD_SSSHADOWS_DEBUG_MODE
 	//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!

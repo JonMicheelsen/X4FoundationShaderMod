@@ -102,9 +102,16 @@ void main()
 		float Subsurface = 0.0;
 		UnpackMetalSubsurface(Metalness, Subsurface);
 	#endif
-	get_colors(Albedo, Metalness, cspec, cdiff);
 
-	vec3 clight = IO_lightcolor.rgb;
+	get_colors(Albedo, Metalness, cspec, cdiff);
+	
+	#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+		vec3 lightcolor = vec3(0.0, 0.0, 1.0);
+	#else	
+		vec3 lightcolor = IO_lightcolor.rgb;
+	#endif
+
+	vec3 clight = lightcolor;
 
 	float3 light;
 	#ifdef LOCALSPEC
@@ -119,7 +126,7 @@ void main()
 	float4 finalColor;
 	finalColor.rgb = light;
 
-	vec3 Ispec = IO_SpecularIntensity * IO_lightcolor.rgb * n_dot_l;
+	vec3 Ispec = IO_SpecularIntensity * lightcolor * n_dot_l;
 	
 	finalColor.rgb += Ispec * EvalBRDFSimpleSpec(cspec, Roughness, l, v, Normal);
 

@@ -331,12 +331,13 @@ void main()
 		float diffndotl = saturate(dot(Normal, ldiff));
 		vec3 cspec = vec3(0);
 		vec3 cdiff = vec3(0);
-		get_colors(Albedo, Me
 
 		#ifdef JON_MOD_ENABLE_SUBSURFACE_GBUFFER_PACKING
 			float Subsurface = 0.0;
 			UnpackMetalSubsurface(Metalness, Subsurface);
 		#endif
+
+		get_colors(Albedo, Metalness, cspec, cdiff);
 	
 		talness, cspec, cdiff);
 
@@ -360,9 +361,14 @@ void main()
 			//looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 			diffuse_occlusion = 1.0f;
 		}
-
+		#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+			vec3 lightcolor = vec3(1.0, 1.0, 0.0);
+		#else	
+			vec3 lightcolor = IO_lightcolor.rgb;
+		#endif
+		
 		// diffuse contribution
-		vec3 Idiff = IO_lightcolor.rgb * diffndotl * diffuse_occlusion;
+		vec3 Idiff = lightcolor * diffndotl * diffuse_occlusion;
 		finalColor.rgb += Idiff * cdiff/PI ;
 
 
@@ -378,7 +384,7 @@ void main()
 		specatten = specatten - specatten * horizon;
 		
 		// specular contribution
-		vec3 Ispec = IO_SpecIntensity * IO_lightcolor.rgb * specatten * n_dot_l;
+		vec3 Ispec = IO_SpecIntensity * lightcolor * specatten * n_dot_l;
 		// vec3 Ispec = IO_SpecIntensity * IO_Intensity * IO_lightcolor.rgb * specatten * diffndotl;
 		finalColor.rgb += Ispec * EvalBRDF(cspec, cdiff, Roughness, Lnorm, v, Normal, vec2(0,1));
 	}

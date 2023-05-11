@@ -59,7 +59,8 @@ vec3 integrate_GGX_and_retroreflective_diffuse(float roughness, float n_dot_v)
 	}
 	
   }
-  return vec3(a, b, c) * (1.0 / num_samples);
+  vec3 sum = vec3(a, b, c * PI) * (1.0 / num_samples);
+  return sum * (1.0 / dot(sum, vec3(1.0)));
 }
 
 void main()

@@ -1491,8 +1491,10 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	lcolors[0] = XR_TO_linearRGB(V_lightcolor1.rgb) * F_globallightscale;
 	lcolors[1] = XR_TO_linearRGB(V_lightcolor2.rgb) * F_globallightscale;
 #endif
-
-
+#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+	lcolors[0] = vec3(1.0, 0.0, 0.0);
+	lcolors[1] = vec3(1.0, 0.0, 0.0);
+#endif 
 	for (int i = 0; i < 2; ++i) {
 		direct_occlusions[i] = saturate(dot(ldirs[i], wn));
 	}
@@ -1591,8 +1593,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 				#endif
 				ss_shadow = ScreenSpaceShadows(	world2view_rot(-ldirs[i]), 
 															vec2(fade_near, fade), 
-															ss_shadow_debug, 
-															i);
+															ss_shadow_debug);
 			}
 			#ifdef JON_MOD_SSSHADO_FILTER
 				#if 1
@@ -1699,7 +1700,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	#ifdef JON_MOD_SSSHADOWS_DEBUG_MODE
 		light_accum = ss_shadow_debug;
 	#endif
-	return DEFERRED_HACK_TO_sRGB(light_accum) * ambient_occlusion;	//TODO why is there a double ambient_occlusion multiply?!
+	return DEFERRED_HACK_TO_sRGB(light_accum);//Jon No, we already acounted for this!// * ambient_occlusion;	//TODO why is there a double ambient_occlusion multiply?!
 }
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr)

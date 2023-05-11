@@ -6,8 +6,7 @@
 //L we have to trasnform to view space
 float ScreenSpaceShadows(	in vec3 light_ray, 
 							in vec2 cascade_blend, 
-							inout vec3 debug, 
-							in int i)	
+							inout vec3 debug)	
 {
 	float step_size = 1.0 / float(JON_MOD_SSSHADOWS_MAX_STEPS);
 	
@@ -67,7 +66,66 @@ float ScreenSpaceShadows(	in vec3 light_ray,
 	
 	return 1.0 - shadow * (cascade_blend.x + cascade_blend.y);
 }
+/*
+//L we have to trasnform to view space
+float ScreenSpacePointShadows(	in vec3 light_ray, 
+								in float range_blend)	
+{
+	const float step_size = 1.0 / float(JON_MOD_SSSHADOWS_POINT_MAX_STEPS);
+	
+	// Compute ray step
+	vec3 ray_step = light_ray * step_size * JON_MOD_SSSHADOWS_POINT_RAY_MAX_DISTANCE * range_blend;
+	
+	// Ray march towards the light
+	float shadow = 0.0;
+	vec2 ray_uv = vec2(0.0);
+	vec2 fade = vec2(0.0);
 
+	vec3 ray_pos = GetViewPos();
+	float2 aspect = float2(0.5, -0.5 * V_viewportpixelsize.x / V_viewportpixelsize.y);
+
+	//different ways of getting what we need
+	//debug = fract(vec3(1.0 / vec2(GetDepth(GetFragUV()), GetDepth()), GetViewPos().z * 10.0));//why 10?
+	//works too
+	//debug = fract(vec3(1.0 / vec2(GetDepth((ray_pos.xy / ray_pos.z) * aspect + 0.5), GetDepth()), GetViewPos().z * 10.0));//why 10?
+	
+	float depth = (ray_pos.z * 10.0);
+	vec2 dither = hash22(gl_FragCoord.xy);
+	vec2 texel_size = (1.0 / V_viewportpixelsize.xy);
+	float thickness_threshold = JON_MOD_POINT_SSSHADOWS_MAX_THICKNESS;
+	float depth_bias = JON_MOD_SSSHADOWS_POINT_BIAS * (1.0 + depth * 0.01);
+	float attenuation = ceil(cascade_blend.x) * step_size * JON_MOD_SSSHADOWS_POINT_ATTENUATION;
+	
+	for (uint i = 0; i < JON_MOD_SSSHADOWS_POINT_MAX_STEPS; i++)
+	{
+		// Step the ray
+		ray_pos -= ray_step;
+		ray_uv = ray_pos.xy / ray_pos.z;
+
+		fade = abs(ray_uv);
+		
+		// Ensure the UV coordinates are inside the screen
+		if(max(fade.x, fade.y) > 1.0)
+			break;
+		
+		float depth_step = 1.0 / GetDepth(ray_uv * aspect + 0.5 + uv2clip(fract(dither)) * texel_size);
+		dither += step_size;
+		float depth_delta = ray_pos.z * 10.0 - depth_step - depth_bias;
+		
+		if(depth_delta > 0.0 && depth_delta <  thickness_threshold)
+		{
+			// Fade out as we approach the edges of the screen
+			fade				= 1.0 - saturate(fade * 100.0 - 99.0);
+			shadow				= min(fade.x, fade.y);
+			shadow				= 1 - attenuation * i;
+			break;
+		}
+
+	}
+	
+	return 1.0 - shadow * range_blend;
+}
+*/
 // [Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"]
 // Similar to UE4/5 but with actual luminance, since that's a nice touch, rather than just cspec.g
 vec3 schlick_f(vec3 cspec, float v_dot_h)
@@ -160,6 +218,10 @@ vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff,
 	#else
 		ambient_diffuse *= ambient_occlusion;
 	#endif
+#ifdef JON_MOD_DISABLE_AMBIENT_LIGHT
+	return vec3(0.0);
+#endif	
+	
 	return ambient_specular + ambient_diffuse;
 }
 
@@ -196,7 +258,11 @@ vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 
 	#else
 		ambient_diffuse *= ambient_occlusion;
 	#endif
-	return vec4(ambient_specular.rgb + ambient_diffuse * PI, ambient_specular.a);
+#ifdef JON_MOD_DEBUG_DISABLE_AMBIENT_LIGHT
+	return vec4(0.0);
+#endif	
+
+	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
 
 }
 

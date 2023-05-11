@@ -303,9 +303,14 @@ void main()
 			//looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 			diffuse_occlusion = 1.0f;
 		}
+		#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+			vec3 lightcolor = vec3(0.0, 1.0, 1.0);
+		#else	
+			vec3 lightcolor = IO_lightcolor.rgb;
+		#endif
 
 		// diffuse contribution
-		vec3 Idiff = IO_lightcolor.rgb * diffndotl * diffuse_occlusion;
+		vec3 Idiff = lightcolor * diffndotl * diffuse_occlusion;
 		finalColor.rgb += Idiff * cdiff/PI ;
 
 
@@ -344,8 +349,9 @@ void main()
 		horizon *= horizon;
 		specatten = specatten - specatten * horizon;
 
+
 		// specular contribution
-		vec3 Ispec = IO_SpecIntensity * IO_lightcolor.rgb * specatten * n_dot_l;
+		vec3 Ispec = IO_SpecIntensity * lightcolor * specatten * n_dot_l;
 		// vec3 Ispec = IO_SpecIntensity * IO_Intensity * IO_lightcolor.rgb * specatten * diffndotl;
 		finalColor.rgb += Ispec * EvalBRDF(cspec, cdiff, Roughness, Lnorm, v, Normal, vec2(0,1));
 	// finalColor.rgb = vec3(n_dot_l);

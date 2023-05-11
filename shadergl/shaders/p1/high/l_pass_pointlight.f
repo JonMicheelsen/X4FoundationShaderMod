@@ -71,13 +71,17 @@ void main()
 	float PSquareDistanceAtt = saturate(a/b);
 	
 	float4 finalColor;
+	#ifdef JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
+		vec3 lightcolor = vec3(0.0, 1.0, 0.0);
+	#else	
+		vec3 lightcolor = IO_lightcolor.rgb;
+	#endif
 	
-	//Jon :P, know the feeling!
 	//TODO @Timon this is all so wrong, but historical reasons... 
 #ifdef LOCALSPEC
-	finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec2(1, IO_SpecularIntensity)) * IO_lightcolor.rgb * n_dot_l;
+	finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec2(1, IO_SpecularIntensity)) * lightcolor * n_dot_l;
 #else
-	finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec2(1,0)) * IO_lightcolor.rgb * n_dot_l;
+	finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec2(1,0)) * lightcolor * n_dot_l;
 #endif
 	float atten = PSquareDistanceAtt;
 	finalColor.rgb *= atten;
