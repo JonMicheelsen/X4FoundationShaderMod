@@ -9,9 +9,9 @@ vec3 integrate_GGX_and_retroreflective_diffuse(float roughness, float n_dot_v)
   vec3 view = vec3(sqrt(1.0f - n_dot_v * n_dot_v), 0, n_dot_v);
   float a = 0.0f; float b = 0.0f; float c = 0.0f;
  #ifdef JON_MOD_USE_RETROREFLECTIVE_DIFFUSE_MODEL
-	CONST uint num_samples = 512u;//the diffuse needs a ton more samples - and the specular ones looks even better with more too!
+	CONST uint num_samples = 256u;//the diffuse needs a ton more samples - and the specular ones looks even better with more too!
 #else
-	CONST uint num_samples = 64u;//was 32
+	CONST uint num_samples = 32u;//was 32
 #endif	
   for(uint i=0u; i< num_samples; ++i)
   {

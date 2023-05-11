@@ -32,30 +32,25 @@
 
 #define JON_MOD_SSSHADOWS //default on
 	//near and far
-	#define JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS //default on
-	#define JON_MOD_SSSHADOWS_MAX_STEPS 64 //default 64, it's pretty rare to ever go this high be aware this is a times 2
+	//#define JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS //default on
+	#define JON_MOD_SSSHADOWS_MAX_STEPS 32 //default 64, it's pretty rare to ever go this high be aware this is a times 2
 	//far
 	#define JON_MOD_SSSHADOWS_FADE_DISTANCE 5000.0 //not all PCF shadows have the same distance, so some lods will still shadow pop if we just use that, so with this we can enforce a max distance where everything will use Screenspace Shadows
-	#define JON_MOD_SSSHADOWS_DITHER 1.0 //default 1
+	#define JON_MOD_SSSHADOWS_DITHER 8.0 //default 1
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE 100.0 //default 100.0 = 100.0m distance. I think 1 is about 10cm, so a hundred meters is 10000
 	#define JON_MOD_SSSHADOWS_BIAS 10.0 //default 10.0 = 1.0m
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS 1000.0 //default 1000.0 = 100.0m shadows thicker than this from the camera are ignored, so as to things near ain't casting shadows on things far
 	//near
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 25cm
 	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //0.5cm
-	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.2 //2cm
+	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.5 //5cm
 	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 25.0m
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
-//pending implementation
-#define JON_MOD_SSSHADOWS_POINT
-	#define JON_MOD_SSSHADOWS_POINT_MAX_STEPS 32.0
-	#define JON_MOD_SSSHADOWS_POINT_RAY_MAX_DISTANCE 0.25
-	#define JON_MOD_POINT_SSSHADOWS_MAX_THICKNESS 1.0
-	#define JON_MOD_SSSHADOWS_POINT_BIAS 0.1
-	#define JON_MOD_SSSHADOWS_POINT_ATTENUATION 1.0
-	
+//	#define JON_MOD_SSSHADOWS_DEBUG_MODE
+//		#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
+
 //#define JON_MOD_DEBUG_GREY_WORLD
 //#define JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
 // aqua = l_pass_arealight_gen.f
@@ -66,8 +61,6 @@
 // red = l_star_light1.
 //#define JON_MOD_DEBUG_DISABLE_AMBIENT_LIGHT
 //debugs
-//#define JON_MOD_SSSHADOWS_DEBUG_MODE
-	//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
 
 //#define JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 
