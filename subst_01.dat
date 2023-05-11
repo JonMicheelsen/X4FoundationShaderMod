@@ -1579,7 +1579,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 				ss_shadow_debug.b = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG];
 			#endif
 			//screenspace shadow
-			if((direct_occlusions[i] * (fade_near + fade)) > 0.0)
+			if((direct_occlusions[i] * (fade_near + fade)) > 0.0001)
 			{
 				#ifndef JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS
 				if(i > 0)
@@ -1615,9 +1615,9 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//float clearcoat_spec = cc * EvalBRDF(vec3(0.05), cdiff, 0.1, L, v, Normal2, vec2(0,1)).r; // ok since dielectric reflection
 		//light_accum += clearcoat_spec * E_sph;
 
-		vec3 E_diffuse = direct_occlusions[i] * ambient_occlusion * lcolors[i];
+		//vec3 E_diffuse = direct_occlusions[i] * ambient_occlusion * lcolors[i];
 		//light_accum += cdiff / PI * E_diffuse; // diffuse
-		light_accum += cdiff * E_diffuse; // diffuse
+		//light_accum += cdiff * E_diffuse; // diffuse
 	}
 	{// ambient light
 		// reduce roughness based on v_dot_n yields nicer fresnel contours
@@ -2863,7 +2863,7 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 25cm
 	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //0.5cm
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.2 //2cm
-	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 10.0 // 10.0m
+	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 10.0m
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
@@ -2872,7 +2872,7 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 
 //debugs
 //#define JON_MOD_SSSHADOWS_DEBUG_MODE
-//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
+	//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
 
 //#define JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 
@@ -2910,7 +2910,7 @@ float ScreenSpaceShadows(	in vec3 light_ray,
 	vec2 dither = hash22(gl_FragCoord.xy);
 	vec2 texel_size = (1.0 / V_viewportpixelsize.xy);
 	float thickness_threshold = max(JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR, JON_MOD_SSSHADOWS_MAX_THICKNESS * ceil(cascade_blend.y));
-	float depth_bias = max(JON_MOD_SSSHADOWS_BIAS_NEAR * (1.0 + depth * 0.001), JON_MOD_SSSHADOWS_BIAS * ceil(cascade_blend.y));
+	float depth_bias = max(JON_MOD_SSSHADOWS_BIAS_NEAR * (1.0 + depth * 0.01), JON_MOD_SSSHADOWS_BIAS * ceil(cascade_blend.y));
 	float attenuation = ceil(cascade_blend.x) * step_size * JON_MOD_SSSHADOWS_ATTENUATION_NEAR;
 	
 	for (uint i = 0; i < JON_MOD_SSSHADOWS_MAX_STEPS; i++)
@@ -3075,7 +3075,7 @@ vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 
 	#else
 		ambient_diffuse *= ambient_occlusion;
 	#endif
-	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
+	return vec4(ambient_specular.rgb + ambient_diffuse * PI, ambient_specular.a);
 
 }
 

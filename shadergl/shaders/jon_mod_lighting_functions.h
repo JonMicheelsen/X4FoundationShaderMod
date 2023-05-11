@@ -31,7 +31,7 @@ float ScreenSpaceShadows(	in vec3 light_ray,
 	vec2 dither = hash22(gl_FragCoord.xy);
 	vec2 texel_size = (1.0 / V_viewportpixelsize.xy);
 	float thickness_threshold = max(JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR, JON_MOD_SSSHADOWS_MAX_THICKNESS * ceil(cascade_blend.y));
-	float depth_bias = max(JON_MOD_SSSHADOWS_BIAS_NEAR * (1.0 + depth * 0.001), JON_MOD_SSSHADOWS_BIAS * ceil(cascade_blend.y));
+	float depth_bias = max(JON_MOD_SSSHADOWS_BIAS_NEAR * (1.0 + depth * 0.01), JON_MOD_SSSHADOWS_BIAS * ceil(cascade_blend.y));
 	float attenuation = ceil(cascade_blend.x) * step_size * JON_MOD_SSSHADOWS_ATTENUATION_NEAR;
 	
 	for (uint i = 0; i < JON_MOD_SSSHADOWS_MAX_STEPS; i++)
@@ -196,7 +196,7 @@ vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 
 	#else
 		ambient_diffuse *= ambient_occlusion;
 	#endif
-	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
+	return vec4(ambient_specular.rgb + ambient_diffuse * PI, ambient_specular.a);
 
 }
 

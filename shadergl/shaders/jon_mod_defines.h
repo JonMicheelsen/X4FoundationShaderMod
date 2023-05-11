@@ -44,16 +44,17 @@
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 25cm
 	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //0.5cm
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.2 //2cm
-	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 10.0 // 10.0m
+	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 10.0m
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
 //pending implementation
 //#define JON_MOD_SSSHADOWS_POINTLIGHTS
 
+#define JON_MOD_DEBUG_GREY_WORLD
 //debugs
 //#define JON_MOD_SSSHADOWS_DEBUG_MODE
-//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
+	//#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
 
 //#define JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 

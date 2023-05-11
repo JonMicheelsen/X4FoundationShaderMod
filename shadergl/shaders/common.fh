@@ -1579,7 +1579,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 				ss_shadow_debug.b = direct_occlusions[JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG];
 			#endif
 			//screenspace shadow
-			if((direct_occlusions[i] * (fade_near + fade)) > 0.0)
+			if((direct_occlusions[i] * (fade_near + fade)) > 0.0001)
 			{
 				#ifndef JON_MOD_SSSHADOWS_SUPPORT_BOTH_PRIMARY_LIGHTS
 				if(i > 0)
@@ -1615,9 +1615,9 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 		//float clearcoat_spec = cc * EvalBRDF(vec3(0.05), cdiff, 0.1, L, v, Normal2, vec2(0,1)).r; // ok since dielectric reflection
 		//light_accum += clearcoat_spec * E_sph;
 
-		vec3 E_diffuse = direct_occlusions[i] * ambient_occlusion * lcolors[i];
+		//vec3 E_diffuse = direct_occlusions[i] * ambient_occlusion * lcolors[i];
 		//light_accum += cdiff / PI * E_diffuse; // diffuse
-		light_accum += cdiff * E_diffuse; // diffuse
+		//light_accum += cdiff * E_diffuse; // diffuse
 	}
 	{// ambient light
 		// reduce roughness based on v_dot_n yields nicer fresnel contours

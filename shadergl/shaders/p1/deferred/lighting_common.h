@@ -306,6 +306,9 @@ vec3 get_irradiance(samplerCube filtered_env_map, in vec3 n) {
 }
 
 void get_colors(in vec3 albedo, in float metalness, out vec3 cspec, out vec3 cdiff) {
+	#ifdef JON_MOD_DEBUG_GREY_WORLD
+		albedo = vec3(0.5);
+	#endif
     cdiff = albedo * (1.0-metalness);
     cspec = mix(vec3(0.04), albedo, metalness);
 	cdiff = cdiff * saturate(1.0f - dot(LUM_ITU601, cspec)); // cheap luminance energy conservation
