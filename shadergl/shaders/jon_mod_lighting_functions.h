@@ -150,7 +150,7 @@ vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff,
 		specular_ibl.rgb = vec3(1.0);
 	#endif
 	
-	//why was the SSR missing a PI in inensity to match!?
+	//why was the SSR missing a PI in inensity to match!? Nah, seemed to intense
 	vec3 ambient_specular = mix(specular_ibl.rgb, ssr.rgb, ssr.a);
 
 	ambient_specular *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);

@@ -48,7 +48,22 @@ void main()
 	
 	if (hit >= 0.7) //apply contact hardening only on fairly certain hits
 	{
-		dist += (0.3 * roughness); // make sure it never goes overly smooth for rough surfaces
+		#ifdef JON_MOD_SSR_WIDER_ROUGH_SCATTER
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(IO_uv0.x > 0.5)
+				{	
+			#endif
+			dist += (0.6 * roughness); // make sure it never goes overly smooth for rough surfaces
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+				}
+				else
+				{
+					dist += (0.3 * roughness);
+				}
+			#endif
+		#else
+			dist += (0.3 * roughness);
+		#endif
 		dist = saturate(dist);
 		roughness *= (dist);
 	}

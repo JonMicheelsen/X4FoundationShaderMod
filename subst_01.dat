@@ -2845,7 +2845,7 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 	#define JON_MOD_USE_AMBIENT_DIFFUSE_TRICKS
 	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
 	#define JON_MOD_USE_AMBIENT_SPECULAR_TRICKS_PROBE_VERSION //don't know if this needs it since it already parallax corrects. Now it can be turned off seperately.
-	
+
 #define JON_MOD_USE_LUMINANCE_FRESNEL
 	#define JON_MOD_USE_STRICTER_N_DOT_V
 #define JON_MOD_SSR_WIDER_ROUGH_SCATTER
@@ -2864,10 +2864,10 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS 1000.0 //default 1000.0 = 100.0m shadows thicker than this from the camera are ignored, so as to things near ain't casting shadows on things far
 	//near
 	#define JON_MOD_SSSHADOWS_RAY_MAX_DISTANCE_NEAR 0.25 //default 25cm
-	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //0.5cm
+	#define JON_MOD_SSSHADOWS_BIAS_NEAR 0.1 //1.0cm
 	#define JON_MOD_SSSHADOWS_MAX_THICKNESS_NEAR 0.5 //5cm
 	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 25.0m
-	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
+	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 0.1 //optional soft fade near shadows
 	//filtering
 	#define JON_MOD_SSSHADOWS_FILTER // filters with screenspace derivatives, might give very different result at different resolution
 //	#define JON_MOD_SSSHADOWS_DEBUG_MODE
@@ -2887,7 +2887,7 @@ void RoughnessRemapSmoothVersion(inout float Smooth)
 
 //#define JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
 
-#define INVPI 	(0.318309886f)
+#define INVPI (0.318309886f)
 ////////////////// JON MOD LIGHTING FUNCTIONS //////////////////
 //Included right before global_lights() in common.fh, that is included in all lighting code
 // as well as in the start of lighting_common.h
@@ -3040,7 +3040,7 @@ vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff,
 		specular_ibl.rgb = vec3(1.0);
 	#endif
 	
-	//why was the SSR missing a PI in inensity to match!?
+	//why was the SSR missing a PI in inensity to match!? Nah, seemed to intense
 	vec3 ambient_specular = mix(specular_ibl.rgb, ssr.rgb, ssr.a);
 
 	ambient_specular *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
@@ -5926,8 +5926,12 @@ vec3 integrate_GGX_and_retroreflective_diffuse(float roughness, float n_dot_v)
 void main()
 {
   	OUT_Color = vec4(0);
+	
+/*	
+	//We can do this smarter if we want to use it!
 	vec2 blue_noise = good_blue_noise(IO_uv0 * 256.0);//Makes a nice dither rotation
 	float blue_noise_rot = atan(blue_noise.y, blue_noise.x);//unpack with sincos()
+*/
     OUT_Color.xyz = integrate_GGX_and_retroreflective_diffuse(IO_uv0.x, IO_uv0.y);
 	OUT_Color.a = 1.0;//blue_noise_rot;
   	// OUT_Color = vec4(IO_uv0, 1, 1);
@@ -8157,7 +8161,7 @@ void main()
 			reproj /= reproj.w;
 			reproj.xy = clip2uv(reproj.xy);
 			vec2 dist = abs(reproj.xy - pix_uv);
-			TAA_mix = 0.1 + 0.7 * ( smoothstep(0, 8.0 / V_viewportpixelsize.x, dist.x + dist.y));
+			TAA_mix = 0.1 + 0.7 * (smoothstep(0, 8.0 / V_viewportpixelsize.x, dist.x + dist.y));
 		}
 		if (U_pass != 0) {
 			TAA_color = textureLod(S_input_rt, reproj.xy, 0);//TODO @Timon interpolated fetch effectively breaks distance info
@@ -8206,7 +8210,22 @@ void main()
 	float v_dot_n = saturate(dot(view_pos, normal));
 	// smaller cone at edges to highlight fresnel
 	#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
-		ambRoughness = Roughness;
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(pix_uv.x > 0.5)
+		{	
+		#endif
+			#ifdef JON_MOD_SSR_ANGLES_SHARPEN_POW5
+				ambRoughness = Roughness;			
+			#else
+				ambRoughness = Roughness * (v_dot_n * 0.5 + 0.5);
+			#endif
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+		}
+		else
+		{
+			ambRoughness = mix(Roughness*0.75, Roughness, pow(v_dot_n, 1.0/3.0));
+		}
+		#endif
 	#else
 		ambRoughness = mix(Roughness*0.75, Roughness, pow(v_dot_n, 1.0/3.0));
 	#endif
@@ -8230,7 +8249,23 @@ void main()
 			pos *= vec2(2);
 			pos -= vec2(1);
 		}
+#ifdef JON_MOD_SSR_WIDER_ROUGH_SCATTER
+		float scale;
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(pix_uv.x > 0.5)
+			{	
+		#endif
+		scale = 0.01f + 0.4f * (ambRoughness);
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+			}
+			else
+			{
+				scale = 0.01f + 0.2f * (ambRoughness);
+			}
+		#endif
+#else
 		float scale = 0.01f + 0.2f * (ambRoughness);
+#endif
 		scale *= 0.05f;
 		scale *= saturate(1.0f - TAA_mix);
 		view_pos.xy += pos * scale;
@@ -8504,7 +8539,22 @@ void main()
 	
 	if (hit >= 0.7) //apply contact hardening only on fairly certain hits
 	{
-		dist += (0.3 * roughness); // make sure it never goes overly smooth for rough surfaces
+		#ifdef JON_MOD_SSR_WIDER_ROUGH_SCATTER
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+				if(IO_uv0.x > 0.5)
+				{	
+			#endif
+			dist += (0.6 * roughness); // make sure it never goes overly smooth for rough surfaces
+			#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+				}
+				else
+				{
+					dist += (0.3 * roughness);
+				}
+			#endif
+		#else
+			dist += (0.3 * roughness);
+		#endif
 		dist = saturate(dist);
 		roughness *= (dist);
 	}

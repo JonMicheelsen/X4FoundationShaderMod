@@ -112,7 +112,7 @@ void main()
 			reproj /= reproj.w;
 			reproj.xy = clip2uv(reproj.xy);
 			vec2 dist = abs(reproj.xy - pix_uv);
-			TAA_mix = 0.1 + 0.7 * ( smoothstep(0, 8.0 / V_viewportpixelsize.x, dist.x + dist.y));
+			TAA_mix = 0.1 + 0.7 * (smoothstep(0, 8.0 / V_viewportpixelsize.x, dist.x + dist.y));
 		}
 		if (U_pass != 0) {
 			TAA_color = textureLod(S_input_rt, reproj.xy, 0);//TODO @Timon interpolated fetch effectively breaks distance info
@@ -161,7 +161,22 @@ void main()
 	float v_dot_n = saturate(dot(view_pos, normal));
 	// smaller cone at edges to highlight fresnel
 	#ifdef JON_MOD_DISABLE_EGOSOFT_SMOOTHER_GRAZING_ANGLE
-		ambRoughness = Roughness;
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+		if(pix_uv.x > 0.5)
+		{	
+		#endif
+			#ifdef JON_MOD_SSR_ANGLES_SHARPEN_POW5
+				ambRoughness = Roughness;			
+			#else
+				ambRoughness = Roughness * (v_dot_n * 0.5 + 0.5);
+			#endif
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+		}
+		else
+		{
+			ambRoughness = mix(Roughness*0.75, Roughness, pow(v_dot_n, 1.0/3.0));
+		}
+		#endif
 	#else
 		ambRoughness = mix(Roughness*0.75, Roughness, pow(v_dot_n, 1.0/3.0));
 	#endif
@@ -185,7 +200,23 @@ void main()
 			pos *= vec2(2);
 			pos -= vec2(1);
 		}
+#ifdef JON_MOD_SSR_WIDER_ROUGH_SCATTER
+		float scale;
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN
+			if(pix_uv.x > 0.5)
+			{	
+		#endif
+		scale = 0.01f + 0.4f * (ambRoughness);
+		#ifdef JON_MOD_COMPARE_VANILLA_SPLIT_SCREEN	
+			}
+			else
+			{
+				scale = 0.01f + 0.2f * (ambRoughness);
+			}
+		#endif
+#else
 		float scale = 0.01f + 0.2f * (ambRoughness);
+#endif
 		scale *= 0.05f;
 		scale *= saturate(1.0f - TAA_mix);
 		view_pos.xy += pos * scale;

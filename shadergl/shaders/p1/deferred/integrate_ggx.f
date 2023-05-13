@@ -2128,8 +2128,12 @@ vec3 integrate_GGX_and_retroreflective_diffuse(float roughness, float n_dot_v)
 void main()
 {
   	OUT_Color = vec4(0);
+	
+/*	
+	//We can do this smarter if we want to use it!
 	vec2 blue_noise = good_blue_noise(IO_uv0 * 256.0);//Makes a nice dither rotation
 	float blue_noise_rot = atan(blue_noise.y, blue_noise.x);//unpack with sincos()
+*/
     OUT_Color.xyz = integrate_GGX_and_retroreflective_diffuse(IO_uv0.x, IO_uv0.y);
 	OUT_Color.a = 1.0;//blue_noise_rot;
   	// OUT_Color = vec4(IO_uv0, 1, 1);
