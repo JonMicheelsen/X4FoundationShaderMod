@@ -12,7 +12,6 @@
 #define JON_MOD_ROUGHNESS_REMAP // default on. Disney trick, since artists has a tendency to overuse the lower end of the roughness and neglect nuances in the high end, this one does a gentle remap improving both!
 #define JON_MOD_ROUGHNESS_REMAP_PRE_SQUARE_RANGE 0.4142f//default 0.4142f, at this point 0.5 = 0.5, 0 = 0.17 1=1
 
-
 // Human skin lowest index of refraction(IOR)1.35 = 0.28 in unreal specular, or #47, rgb71, 28%brightness, as linear color
 // Human skin highest index of refraction(IOR)1.55 = 0.58 in unreal specular, or #94, rgb148, 58%brightness, as linear color
 // Human hair(and nails technically too) highest index of refraction(IOR)1.55 = 0.58 in unreal specular, or #94, rgb148,
@@ -29,6 +28,9 @@
 	
 #define JON_MOD_USE_LUMINANCE_FRESNEL
 	#define JON_MOD_USE_STRICTER_N_DOT_V
+#define JON_MOD_SSR_WIDER_ROUGH_SCATTER
+#define JON_MOD_SSR_ANGLES_SHARPEN_POW5
+#define JON_MOD_SSR_DISCARD_BAD_NORMAL_MAPPING
 
 #define JON_MOD_SSSHADOWS //default on
 	//near and far
@@ -47,11 +49,12 @@
 	#define JON_MOD_SSSHADOWS_FADE_DISTANCE_NEAR 25.0 // 25.0m
 	#define JON_MOD_SSSHADOWS_ATTENUATION_NEAR 1.0 //optional soft fade near shadows
 	//filtering
-	#define JON_MOD_SSSHADO_FILTER // filters with screenspace derivatives, might give very different result at different resolution
+	#define JON_MOD_SSSHADOWS_FILTER // filters with screenspace derivatives, might give very different result at different resolution
 //	#define JON_MOD_SSSHADOWS_DEBUG_MODE
 //		#define JON_MOD_SSSHADOWS_LIGHT_TO_DEBUG 0 //options are 0 or 1 only!
 
 //#define JON_MOD_DEBUG_GREY_WORLD
+//#define JON_MOD_DEBUG_WHITE_FURNACE_AMBIENT
 //#define JON_MOD_DEBUG_DEBUG_LIGHT_TYPES
 // aqua = l_pass_arealight_gen.f
 // yellow = l_pass_arealight.f

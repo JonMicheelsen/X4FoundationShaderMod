@@ -1595,7 +1595,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 															vec2(fade_near, fade), 
 															ss_shadow_debug);
 			}
-			#ifdef JON_MOD_SSSHADO_FILTER
+			#ifdef JON_MOD_SSSHADOWS_FILTER
 				#if 1
 					ss_shadow = mix(ss_shadow, 0.5, saturate((fwidth(ss_shadow))));
 				#else

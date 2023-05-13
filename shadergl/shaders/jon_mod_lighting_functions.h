@@ -146,6 +146,11 @@ vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff,
 		reflection = off_specular_peak(normal, reflection, roughness_sr);
 	#endif
 	vec4 specular_ibl = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
+	#ifdef JON_MOD_DEBUG_WHITE_FURNACE_AMBIENT
+		specular_ibl.rgb = vec3(1.0);
+	#endif
+	
+	//why was the SSR missing a PI in inensity to match!?
 	vec3 ambient_specular = mix(specular_ibl.rgb, ssr.rgb, ssr.a);
 
 	ambient_specular *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
@@ -154,14 +159,17 @@ vec3 combined_ambient_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 cdiff,
 	#else
 		ambient_specular *= ambient_occlusion;
 	#endif
-
+	
 	vec3 ambient_diffuse = textureLod(filtered_env_map, normal, lowest_mip).rgb + flat_diffuse_addition;
+	#ifdef JON_MOD_DEBUG_WHITE_FURNACE_AMBIENT
+		ambient_diffuse = vec3(1.0);
+	#endif
 	#ifdef JON_MOD_USE_AMBIENT_SPECULAR_TRICKS
 		ambient_diffuse *= (cdiff * muli_bounce_ambient_occlusion(cdiff, ambient_occlusion)) * env_brdfs.b;	
 	#else
 		ambient_diffuse *= ambient_occlusion;
 	#endif
-#ifdef JON_MOD_DISABLE_AMBIENT_LIGHT
+#ifdef JON_MOD_DEBUG_DISABLE_AMBIENT_LIGHT
 	return vec3(0.0);
 #endif	
 	
@@ -184,7 +192,6 @@ vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 
 		reflection = off_specular_peak(normal, reflection, roughness_sr);
 	#endif
 	vec4 ambient_specular = textureLod(filtered_env_map, reflection, lowest_mip * sqrt(roughness));
-	return vec4(0.0);
 
 	ambient_specular.rgb *= (1.0 - ssr_alpha);
 	ambient_specular.rgb *= (cspec * env_brdfs.x + min(dot(LUM_ITU601, cspec) * 50.0, 1.0) * env_brdfs.y);
@@ -204,7 +211,6 @@ vec4 combined_ambient_probe_brdf(samplerCube filtered_env_map, vec3 cspec, vec3 
 #ifdef JON_MOD_DEBUG_DISABLE_AMBIENT_LIGHT
 	return vec4(0.0);
 #endif	
-
 	return vec4(ambient_specular.rgb + ambient_diffuse, ambient_specular.a);
 
 }
