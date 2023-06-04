@@ -2,7 +2,6 @@
 Various rendering experiments for X4 Foundation. Code part.
 
 NOTE! This mod is still very much WIP!!
-NOTE!! This mods assumes you to already be playing on Ultra, since it for now adds more work for the gpu to do.
 
 How to install:
 Download by clicking the green "Code" button and select the "Download Zip" button.
