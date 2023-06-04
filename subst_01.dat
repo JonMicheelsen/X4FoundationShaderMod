@@ -1458,7 +1458,7 @@ float4 calc_Strauss_PBR(	CONST float3 N,
 	
 #endif
 
-#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_lighting_functions.h>
+#include <../../extensions/jm_x4_shaders/shadergl/shaders/jm_includes/jm_lighting_functions.h>
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr, vec4 prev)
 {
@@ -2786,8 +2786,8 @@ float volume_getfadefactor(float viewz, float size)
 	#define XR_TO_linearRGB(val)	(val)
 #endif
 
-#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_defines.h>
-#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_util_functions.h>
+#include <../../extensions/jm_x4_shaders/shadergl/shaders/jm_includes/jm_defines.h>
+#include <../../extensions/jm_x4_shaders/shadergl/shaders/jm_includes/jm_util_functions.h>
 #define SHADOWMAP_SIZE 4096.0f
 //#define SHADER_BIAS
 float GetShadowSoft(sampler2D shadowmap, float4 coords)
@@ -3263,7 +3263,7 @@ float GetCSMShadow(in float ndotl, in vec3 view_pos)
 }
 
 #endif //DISABLE_SHADOW_HELPERS
-#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_buffer_encoding_functions.h>
+#include <../../extensions/jm_x4_shaders/shadergl/shaders/jm_includes/jm_buffer_encoding_functions.h>
 // #define USE24BITNORMALCOMPRESSION
 
 //Lambert Azimuthal Equal-Area Projection
@@ -5967,7 +5967,7 @@ void main()
 #define DEFERRED_HACK_TO_sRGB(val)		(val)
 
 #include <common_light.h>
-#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_lighting_functions.h>
+#include <../../extensions/jm_x4_shaders/shadergl/shaders/jm_includes/jm_lighting_functions.h>
 
 int IrradianceLevel()
 {
