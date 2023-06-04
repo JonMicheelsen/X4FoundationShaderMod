@@ -1458,7 +1458,7 @@ float4 calc_Strauss_PBR(	CONST float3 N,
 	
 #endif
 
-#include <../../extensions/X4FoundationShaderMod/shadergl/shaders/jm_includes/jm_lighting_functions.h>
+#include <../../extensions/X4FoundationShaderMod-main/shadergl/shaders/jm_includes/jm_lighting_functions.h>
 
 vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metalness, in float Roughness, bool dossr, vec4 prev)
 {
