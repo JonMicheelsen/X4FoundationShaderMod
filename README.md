@@ -1,5 +1,5 @@
-# X4FoundationShaderModCodebase
-Various rendering experiments for X4 Foundation. Code part.
+# jm_x4_shaders
+Various rendering experiments for X4 Foundation.
 
 NOTE! This mod is still very much WIP!!
 
