@@ -1522,7 +1522,8 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 	lcolors[1] = vec3(0.0, level, level);
 #endif 
 	for (int i = 0; i < 2; ++i) {
-		direct_occlusions[i] = vec3(saturate(dot(ldirs[i], wn)), saturate(dot(ldirs[i], wn)), SubsurfaceMask * sss_wrap_dot(ldirs[i], wnsub, Subsurface));
+		float n_dot_l = dot(ldirs[i], wn);
+		direct_occlusions[i] = saturate(vec3(n_dot_l, n_dot_l, SubsurfaceMask * sss_wrap_dot(ldirs[i], wnsub, Subsurface)) * soft_micro_shadow(ambient_occlusion, abs(n_dot_l)));
 	}
 	
 	//vec3 l = mat3(M_view) * normalize(V_direction1.xyz);
@@ -1620,6 +1621,7 @@ vec3 global_lights(in vec3 wn, in vec3 view_pos, in vec3 Albedo, in float Metaln
 				#endif
 				ss_shadow = ScreenSpaceShadows(	world2view_rot(-ldirs[i]),
 												dot(ldirs[i], wn),
+												dot(wv, wn),
 												vec2(fade_near, fade), 
 												ss_shadow_debug);
 			}
@@ -6879,9 +6881,9 @@ void main()
 {
 	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
 		float level = dot(LUM_ITU601, IO_lightcolor.rgb);
-		vec3 lightcolor = vec3(level, 0.0, level * 0.5);
+		vec3 lightcolor = JM_AREA * level;
 	#else	
-		vec3 lightcolor = IO_lightcolor.rgb;
+		vec3 lightcolor = IO_lightcolor.rgb * JM_AREA;
 	#endif
 	
 	OUT_Color = vec4(0);
@@ -7042,7 +7044,7 @@ void main()
 				#endif
 		
 		
-				float diffndotl = saturate(dot(Normal, ldiff));
+				float diffndotl = dot(Normal, ldiff);
 		
 				// float a = max(Roughness*Roughness, 0.0001f);
 				float a = Roughness*Roughness;
@@ -7061,7 +7063,9 @@ void main()
 					//looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 					diffuse_occlusion = 1.0f;
 				}
-		
+				diffuse_occlusion = soft_micro_shadow(diffuse_occlusion, abs(diffndotl));
+				diffndotl = saturate(diffndotl);
+				
 				#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING
 					float n_dot_l_sss = sss_wrap_dot(ldiff, SubsurfaceNormal, Subsurface) * ambient_occlusion; //since we can't shadow we approximate with this instead
 					//finalColor.rgb += saturate(dot(Normal, ldiff)) * diffuse_occlusion * INVPI * lightcolor;
@@ -7119,9 +7123,13 @@ void main()
 					}
 				}
 			}*/
-		
-			finalColor.rgb = clamp(finalColor.rgb, 0, 10); // safety
-			finalColor.rgb = clamp(finalColor.rgb, 0, 2); // reduce flares
+			
+			#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+				finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS)); // safety
+			#else	
+//				finalColor.rgb = clamp(finalColor.rgb, vec2(0.0), vec3(10.0)); // safety
+				finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(2.0)); // reduce flares
+			#endif
 			finalColor.rgb *= diffuse_occlusion;
 			
 			OUT_Color.rgb = finalColor.rgb;
@@ -7137,7 +7145,7 @@ void main()
 			OUT_Color.rgb += 1.0f / LPASS_COUNT;
 		#endif
 	#else
-		OUT_Color.rgb = vec3(4.0, 0.0, 2.0);
+		OUT_Color.rgb = JM_AREA;
 		OUT_Color.a = 1.0;	
 	#endif
 	
@@ -7341,9 +7349,9 @@ void main()
 {
 	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
 		float level = dot(LUM_ITU601, IO_lightcolor.rgb);
-		vec3 lightcolor = vec3(level, level * 0.5, 0.0);
+		vec3 lightcolor = JM_AREA_GEN * level;
 	#else	
-		vec3 lightcolor = IO_lightcolor.rgb;
+		vec3 lightcolor = IO_lightcolor.rgb * JM_AREA_GEN;
 	#endif
 	
 	OUT_Color = vec4(0);
@@ -7422,7 +7430,7 @@ void main()
 		float Smoothness;
 		RI_GBUFFER_METAL_SMOOTH(Metalness, Smoothness);
 		
-		float diffndotl = saturate(dot(Normal, ldiff));
+		float diffndotl = dot(Normal, ldiff);
 			
 		float SubsurfaceMask = 0;
 		#ifdef JM_USE_DISCARD_AREALIGHT_MORE
@@ -7490,7 +7498,9 @@ void main()
 			//looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 			diffuse_occlusion = 1.0f;
 		}
-	
+		
+		diffuse_occlusion = soft_micro_shadow(diffuse_occlusion, abs(diffndotl));
+		diffndotl = saturate(diffndotl);
 		vec3 v = normalize(-view_pos);
 		
 		#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING
@@ -7567,9 +7577,13 @@ void main()
 				}
 			}
 		}*/
-	
-		finalColor.rgb = clamp(finalColor.rgb, 0, 10); // safety
-		finalColor.rgb = clamp(finalColor.rgb, 0, 2); // reduce flares
+			
+		#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+			finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_GLOWS_LEVELLED)); // safety
+		#else	
+//			finalColor.rgb = clamp(finalColor.rgb, vec2(0.0), vec3(10.0)); // safety
+			finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(2.0)); // reduce flares
+		#endif
 		finalColor.rgb *= diffuse_occlusion;
 		
 		OUT_Color.rgb = finalColor.rgb;
@@ -7609,108 +7623,113 @@ void main()
 {
 	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
 		float level = dot(LUM_ITU601, IO_lightcolor.rgb);
-		vec3 lightcolor = vec3(0.0, 0.0, level);
+		vec3 lightcolor = JM_BOX * level;
 	#else	
-		vec3 lightcolor = IO_lightcolor.rgb;
-	#endif	
+		vec3 lightcolor = IO_lightcolor.rgb * JM_BOX;
+	#endif
+	
 	OUT_Color = vec4(0);	
-	#if 1	
-		CONST half2 LightPower = half2(SPEC_POWER, 6.2); // We need power from light here
-	
-		vec3 view_pos;
-		RetrieveZBufferViewPos(view_pos);
-	
-		// Calculate the frustum ray using the view-space position.
-		CONST float3 PositionWV = (IO_worldviewpos.xyz / IO_worldviewpos.z) * view_pos.z; // scale back to z = 1.0 and scale to stored Z
-		
-		float Ldist = length(IO_l2 - IO_l1);
-		Ldist *=Ldist;
-		float t = dot(IO_l1 - PositionWV, IO_l2 - IO_l1) / Ldist;
-		t = saturate(-t);
-		float3 Lx = IO_l1 + (t * (IO_l2 - IO_l1));
-		
-		// Start normal light calculations
-		CONST float3 L = Lx.xyz - PositionWV.xyz; // build L with light center and reconstructed Z pos
-		
-		CONST float LightDistance = length(L);
-	
-		if (LightDistance > length(IO_l2 - IO_l1) + IO_radius) {
-			LPASS_SHAPE_EARLY_DISCARD()
-			discard;
-		}
-	
-		CONST half DistanceNorm2 = IO_radius*0.9/LightDistance;
-		CONST half PSquareDistanceAtt = saturate( 1.0 - 1.0/ pow(DistanceNorm2,2.0));
-	
-		if (PSquareDistanceAtt <= 0) {
-			LPASS_SHAPE_EARLY_DISCARD()
-			discard;
-		}
-		
-		vec3 Normal;
-		RI_GBUFFER_NORMAL0(Normal);
-		
-		float Metalness;
-		float Smoothness;
-		RI_GBUFFER_METAL_SMOOTH(Metalness, Smoothness);
-		
-		vec3 l = normalize(L);
-		float n_dot_l = saturate(dot(Normal, l));
-		float SubsurfaceMask = 0;
-		#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING	
-			SubsurfaceMask = max(0.0, ceil(0.5 - Metalness));
-			if (n_dot_l + SubsurfaceMask <= 0.0){
-		#else
-			if (n_dot_l <= 0.0)	{
-		#endif
-			LPASS_SHAPE_EARLY_DISCARD()
-			discard;
-		}
-	
-		
-		vec4 finalColor = vec4(0);
-		vec3 l0 = IO_l1 - view_pos;
-		vec3 l1 = IO_l2 - view_pos;
-		vec3 n = (Normal);
-		vec3 v = normalize(-view_pos.xyz);
-		
-		vec3 Albedo;
-		RI_GBUFFER_BASECOLOR(Albedo);
-		
-		float Roughness = smooth2rough(Smoothness);
-	
-		vec3 cspec = vec3(0);
-		vec3 cdiff = vec3(0);
-		vec3 csub = vec3(0);
-		vec3 SubsurfaceNormal = Normal;
-		float Subsurface = 0;
-		float RoughnessEpidermal = 0.5;
-		#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING
-			get_colors(	Albedo, 
-						Metalness, 
-						Roughness, 
-						cspec, 
-						cdiff, 
-						csub, 
-						SubsurfaceNormal,
-						Subsurface, 
-						RoughnessEpidermal, 
-						SubsurfaceMask);
-		#else
-			get_colors(Albedo, Metalness, cspec, cdiff);
-		#endif
-		/*	
-		#ifndef LOCALSPEC
-			cspec = cspec * 0.0f;
-		#endif
-		*/
-		
+	CONST half2 LightPower = half2(SPEC_POWER, 6.2); // We need power from light here
 
-		float diffuse_occlusion = 1.0f;
-		if (B_ssao_enabled) {
-			float ambient_occlusion = GetSSAO();
-			diffuse_occlusion = saturate(ambient_occlusion);
-		}
+	vec3 view_pos;
+	RetrieveZBufferViewPos(view_pos);
+
+	// Calculate the frustum ray using the view-space position.
+	CONST float3 PositionWV = (IO_worldviewpos.xyz / IO_worldviewpos.z) * view_pos.z; // scale back to z = 1.0 and scale to stored Z
+	
+	float Ldist = length(IO_l2 - IO_l1);
+	Ldist *=Ldist;
+	float t = dot(IO_l1 - PositionWV, IO_l2 - IO_l1) / Ldist;
+	t = saturate(-t);
+	float3 Lx = IO_l1 + (t * (IO_l2 - IO_l1));
+	
+	// Start normal light calculations
+	CONST float3 L = Lx.xyz - PositionWV.xyz; // build L with light center and reconstructed Z pos
+	
+	CONST float LightDistance = length(L);
+
+	if (LightDistance > length(IO_l2 - IO_l1) + IO_radius) {
+		LPASS_SHAPE_EARLY_DISCARD()
+		discard;
+	}
+
+	CONST half DistanceNorm2 = IO_radius*0.9/LightDistance;
+	CONST half PSquareDistanceAtt = saturate( 1.0 - 1.0/ pow(DistanceNorm2,2.0));
+
+	if (PSquareDistanceAtt <= 0) {
+		LPASS_SHAPE_EARLY_DISCARD()
+		discard;
+	}
+	
+	vec3 Normal;
+	RI_GBUFFER_NORMAL0(Normal);
+	
+	float Metalness;
+	float Smoothness;
+	RI_GBUFFER_METAL_SMOOTH(Metalness, Smoothness);
+	
+	vec3 l = normalize(L);
+	float n_dot_l = dot(Normal, l);
+	float SubsurfaceMask = 0;
+	#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING	
+		SubsurfaceMask = max(0.0, ceil(0.5 - Metalness));
+		if (n_dot_l + SubsurfaceMask <= 0.0){
+	#else
+		if (n_dot_l <= 0.0)	{
+	#endif
+		LPASS_SHAPE_EARLY_DISCARD()
+		discard;
+	}
+	
+	
+		
+	vec4 finalColor = vec4(0);
+	vec3 l0 = IO_l1 - view_pos;
+	vec3 l1 = IO_l2 - view_pos;
+	vec3 n = (Normal);
+	vec3 v = normalize(-view_pos.xyz);
+	
+	vec3 Albedo;
+	RI_GBUFFER_BASECOLOR(Albedo);
+	
+	float Roughness = smooth2rough(Smoothness);
+	
+	vec3 cspec = vec3(0);
+	vec3 cdiff = vec3(0);
+	vec3 csub = vec3(0);
+	vec3 SubsurfaceNormal = Normal;
+	float Subsurface = 0;
+	float RoughnessEpidermal = 0.5;
+	#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING
+		get_colors(	Albedo, 
+					Metalness, 
+					Roughness, 
+					cspec, 
+					cdiff, 
+					csub, 
+					SubsurfaceNormal,
+					Subsurface, 
+					RoughnessEpidermal, 
+					SubsurfaceMask);
+	#else
+		get_colors(Albedo, Metalness, cspec, cdiff);
+	#endif
+	/*	
+	#ifndef LOCALSPEC
+		cspec = cspec * 0.0f;
+	#endif
+	*/
+	
+
+	float diffuse_occlusion = 1.0f;
+	if (B_ssao_enabled) {
+		float ambient_occlusion = GetSSAO();
+		diffuse_occlusion = saturate(ambient_occlusion);
+	}
+	diffuse_occlusion = soft_micro_shadow(diffuse_occlusion, abs(n_dot_l));
+	n_dot_l = saturate(n_dot_l);
+	#if 1	
+
 		/*	
 		#ifdef LOCALSPEC
 			finalColor.rgb = EvalBRDF(cspec, cdiff, Roughness, normalize(L), v, n, vec2(1, IO_SpecularIntensity)) * clight * n_dot_l;
@@ -7732,9 +7751,15 @@ void main()
 		
 		finalColor.rgb = DEFERRED_HACK_TO_sRGB(finalColor.rgb);
 		
+		//this wasn't clamping originally, but I think it can nan, which a clamp can kill!
+			
+		#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+			finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS)); // safety
+		#endif
+
 		OUT_Color.rgb = finalColor.rgb * diffuse_occlusion;
 		OUT_Color.a = 0;
-			
+		
 		#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES_REACH
 			OUT_Color.rgb = lightcolor;
 		#endif
@@ -7748,7 +7773,7 @@ void main()
 			OUT_Color.rgb += 1.0f / LPASS_COUNT;
 		#endif
 	#else
-		OUT_Color.rgb = vec3(0.0, 0.0, 1);
+		OUT_Color.rgb = lightcolor * n_dot_l * diffuse_occlusion;
 		OUT_Color.a = 1.0;
 	#endif
 }
@@ -7766,9 +7791,8 @@ in vec4 IO_lightcolor;
 void main()
 {
 	
-	OUT_Color = vec4(0);
+	OUT_Color.rgb = vec3(0.0);
 	OUT_Color.a = 1;
-	#if 1 // debug disable everything and output flat color - just to find one in the world!
 		
 		vec3 view_pos;
 		RetrieveZBufferViewPos(view_pos);
@@ -7787,13 +7811,13 @@ void main()
 		RI_GBUFFER_RAW(wn, Albedo, Metalness, Smoothness);
 		float Roughness = smooth2rough(Smoothness);
 	
-		vec3 cspec = vec3(0);
-		vec3 cdiff = vec3(0);
+		vec3 cspec = vec3(0.0);
+		vec3 cdiff = vec3(0.0);
 		#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING
-			vec3 csub = vec3(0);
+			vec3 csub = vec3(0.0);
 			vec3 SubsurfaceNormal = wn;
-			float Subsurface = 0;
-			float SubsurfaceMask = 0;
+			float Subsurface = 0.0;
+			float SubsurfaceMask = 0.0;
 			float RoughnessEpidermal = 0.5;
 			get_colors(	Albedo, 
 						Metalness, 
@@ -7844,59 +7868,64 @@ void main()
 		{
 			discard;
 		}
-		{
-			vec3 R = reflect(-wv, wn);
-			R = EnvMapAdjust(PositionWS, R);
-			#ifdef JM_USE_RETROREFLECTIVE_DIFFUSE_MODEL
-				#ifdef JM_COMPARE_VANILLA_SPLIT_SCREEN
-					if(GetViewPos().x > 0.0)
-					{
-						finalColor += combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, csub, wn, SubsurfaceNormal, R, wv, ambRoughness, RoughnessEpidermal, SubsurfaceMask, Subsurface, saturate(ssr_mask));
-					}
-					else
-					{	
-						float n_dot_v = saturate(dot(wn, wv));
-						vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
-						spec_amb.rgb *= saturate(ssr_mask);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
-						vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
-				
-						finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
-						finalColor.a = spec_amb.a;
-						finalColor.a = saturate(finalColor.a);	
-					}
-				#else
-					finalColor += combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, csub, wn, SubsurfaceNormal, R, wv, ambRoughness, RoughnessEpidermal, SubsurfaceMask, Subsurface, saturate(ssr_mask));
-				#endif
+//		{
+		vec3 R = reflect(-wv, wn);
+		R = EnvMapAdjust(PositionWS, R);
+
+		#ifdef JM_USE_RETROREFLECTIVE_DIFFUSE_MODEL
+			#ifdef JM_COMPARE_VANILLA_SPLIT_SCREEN
+				if(GetViewPos().x > 0.0)
+				{
+					finalColor += combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, csub, wn, SubsurfaceNormal, R, wv, ambRoughness, RoughnessEpidermal, SubsurfaceMask, Subsurface, ambient_occlusion, ssr_mask);
+				}
+				else
+				{	
+					float n_dot_v = saturate(dot(wn, wv));
+					vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+					spec_amb.rgb *= saturate(ssr_mask);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+					vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+			
+					finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+					finalColor.a = spec_amb.a;
+					finalColor.a = saturate(finalColor.a);	
+				}
 			#else
-				
-				float n_dot_v = saturate(dot(wn, wv));
-				vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
-				spec_amb.rgb *= saturate(ssr_mask);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
-				vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
-		
-				finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
-				finalColor.a = spec_amb.a;
-				finalColor.a = saturate(finalColor.a);
-				
+				finalColor += combined_ambient_probe_brdf(S_input_rt, cspec, cdiff, csub, wn, SubsurfaceNormal, R, wv, ambRoughness, RoughnessEpidermal, SubsurfaceMask, Subsurface, ambient_occlusion, ssr_mask);
 			#endif
-		}
-		
-		#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES_REACH
-			OUT_Color.rgb = finalColor.rgb * vec3(4.0, 2.0, 0.0);
-		#endif
-		#ifdef LPASS_BLEND_DEBUG
-			OUT_Color.rgb = IO_lightcolor.rgb;
-			OUT_Color.a = 1;
-			OUT_Color *= saturate(ssr_mask);	//arguable whether we want to know how ssr behaves?
 		#else
-			OUT_Color.rgb = finalColor.rgb;
-			OUT_Color.a = finalColor.a;
+			
+			float n_dot_v = saturate(dot(wn, wv));
+			vec4 spec_amb = spec_brdf_ibl4(S_input_rt, cspec, ambRoughness, R, n_dot_v);
+			spec_amb.rgb *= saturate(ssr_mask);//ssr takes priority over envmap probe specular, however the diffuse and alpha shouldn't be affected so that globallight can accurately mix everything together
+			vec3 diff_amb = cdiff * get_irradiance(S_input_rt, wn);
+	
+			finalColor.rgb = (spec_amb.rgb + diff_amb) * ambient_occlusion;
+			finalColor.a = spec_amb.a;
+			finalColor.a = saturate(finalColor.a);
+			
 		#endif
-		
-		OUT_Color *= blend;
-	#else	
-		OUT_Color.rgb = vec3(4.0, 2.0, 0.0);
-	#endif	
+//		}
+	//this wasn't clamping originally, but I think it can nan, which a clamp can kill!		
+	#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+		finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS)); // safety
+	#endif
+
+	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES_REACH
+		OUT_Color.rgb = JM_PROBE * dot(LUM_ITU601, finalColor.rgb);
+	#endif
+
+	#ifdef LPASS_BLEND_DEBUG
+		OUT_Color.rgb = IO_lightcolor.rgb;
+		OUT_Color.a = 1;
+		OUT_Color *= saturate(ssr_mask);	//arguable whether we want to know how ssr behaves?
+	#else
+		#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
+			OUT_Color.rgb *= JM_PROBE;
+		#endif
+		OUT_Color.rgb = finalColor.rgb;
+		OUT_Color.a = finalColor.a;
+	#endif
+	OUT_Color *= blend;
 }
 #define P1_SHADERS
 #include <common.fh>
@@ -7919,9 +7948,9 @@ void main()
 {
 	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
 		float level = dot(LUM_ITU601, IO_lightcolor.rgb);
-		vec3 lightcolor = vec3(0.0, level, 0.0);
+		vec3 lightcolor = JM_POINT * level;
 	#else	
-		vec3 lightcolor = IO_lightcolor.rgb;
+		vec3 lightcolor = IO_lightcolor.rgb * JM_POINT;
 	#endif
 
 	OUT_Color = vec4(0);
@@ -7949,7 +7978,7 @@ void main()
 	float Smoothness;
 	RI_GBUFFER_METAL_SMOOTH(Metalness, Smoothness);
 	
-	float n_dot_l = saturate(dot(l, Normal));
+	float n_dot_l = dot(l, Normal);
 	float SubsurfaceMask = 0;
 	#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING	
 		SubsurfaceMask = max(0.0, ceil(0.5 - Metalness));
@@ -8014,6 +8043,8 @@ void main()
 		  //looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 		diffuse_occlusion = 1.0f;
 	}	
+	diffuse_occlusion = soft_micro_shadow(diffuse_occlusion, abs(n_dot_l));
+	n_dot_l = saturate(n_dot_l);
 
 	//TODO @Timon this is all so wrong, but historical reasons... 
 #ifdef LOCALSPEC
@@ -8025,10 +8056,12 @@ void main()
 	float atten = PSquareDistanceAtt;
 	finalColor.rgb *= atten;
 	finalColor.a = 1;
+	//this wasn't clamping originally, but I think it can nan, which a clamp can kill!		
+	#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+		finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS)); // safety
+	#endif
 	
 	finalColor = DEFERRED_HACK_TO_sRGB(finalColor);
-	
-
 
 	OUT_Color.rgb = finalColor.rgb * diffuse_occlusion;
 	OUT_Color.a = 0;
@@ -8081,10 +8114,10 @@ void main()
 {
 	#ifdef JM_DEBUG_DEBUG_LIGHT_TYPES
 		float level = dot(LUM_ITU601, IO_lightcolor.rgb);
-		vec3 lightcolor = vec3(level, 0.0, level);
+		vec3 lightcolor = JM_SPOT * level;
 	#else	
-		vec3 lightcolor = IO_lightcolor.rgb;
-	#endif	
+		vec3 lightcolor = IO_lightcolor.rgb * JM_SPOT;
+	#endif
 	
 	OUT_Color = vec4(0);
 	
@@ -8140,7 +8173,7 @@ void main()
 	
 	vec3 l;// = normalize(IO_apex - view_pos);
 	l = normalize(-L);
-	float n_dot_l = saturate(dot(Normal, l));
+	float n_dot_l = dot(Normal, l);
 	#ifdef JM_ENABLE_SUBSURFACE_GBUFFER_PACKING	
 		float SubsurfaceMask = max(0.0, ceil(0.5 - Metalness));
 		if (n_dot_l + SubsurfaceMask <= 0.0)	{
@@ -8190,6 +8223,8 @@ void main()
 		  //looks like either glslang or nvidia-driver bug, or I'm not aware of some detail of the spec
 		diffuse_occlusion = 1.0f;
 	}
+//	diffuse_occlusion = soft_micro_shadow(diffuse_occlusion, abs(n_dot_l));
+	n_dot_l = saturate(n_dot_l);
 	float3 light;
 //	#if 0
 //		#ifdef LOCALSPEC
@@ -8199,7 +8234,7 @@ void main()
 //		#endif
 //	#else
 //		#ifdef LOCALSPEC
-			light = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec3(n_dot_l, 0.0, n_dot_l_sss * SubsurfaceMask), Subsurface, RoughnessEpidermal, csub, SubsurfaceNormal, diffuse_occlusion, false) * lightcolor;
+			light = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec3(n_dot_l, 0.0, n_dot_l_sss * SubsurfaceMask), Subsurface, RoughnessEpidermal, csub, SubsurfaceNormal, false) * lightcolor;
 //		#else
 //			light = EvalBRDF(cspec, cdiff, Roughness, l, v, Normal, vec3(n_dot_l, 0, n_dot_l * SubsurfaceMask), Subsurface, RoughnessEpidermal, csub, false) * lightcolor;
 //		#endif
@@ -8219,7 +8254,14 @@ void main()
 
 
 	finalColor = DEFERRED_HACK_TO_sRGB(finalColor);
-	finalColor.rgb = clamp(finalColor.rgb, 0, 2) * diffuse_occlusion; // reduce flares
+	
+			
+	#ifdef JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS
+		finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(JM_OVERWRITE_VANILLA_LIGHT_INTENSITY_CLAMPS)); // safety
+	#else	
+//		finalColor.rgb = clamp(finalColor.rgb, vec2(0.0), vec3(10.0)); // safety
+		finalColor.rgb = clamp(finalColor.rgb, vec3(0.0), vec3(2.0)); // reduce flares
+	#endif
 
 	OUT_Color.rgb = finalColor.rgb;
 	OUT_Color.a = 0;
@@ -8904,6 +8946,13 @@ void main()
 	//float uRadius = (1.0f / V_viewportpixelsize.x);//0.025f;
 	float uRadius = (U_ssao_sampleradius / V_viewportpixelsize.x)*0.0125f;//0.025f;
 	uRadius *= max(origin.z/(5.0f*DEPTH_SCALE),1.0f);
+	
+	#ifdef JM_SSAO_RANGE_BOOST
+		#ifdef JM_COMPARE_VANILLA_SPLIT_SCREEN
+			if(inVPos.x > V_viewportpixelsize.x * 0.5)
+		#endif		
+		uRadius *= JM_SSAO_RANGE_BOOST;
+	#endif
 	//do the actual occluseion checks
 	float occlusion = 0.0;
 	for (int i = 0; i < kernelSize; ++i) {
@@ -8939,7 +8988,11 @@ void main()
 
 	occlusion = 1.0 - (occlusion / kernelSize)*U_ssao_intensity;
 
-	OUT_Color.r = pow(occlusion,2);// pow(occlusion, 4);//saturate(ao);
+	#ifdef JM_SSAO_POW_BOOST
+		OUT_Color.r = saturate(pow(occlusion, JM_SSAO_POW_BOOST) * (1.0 - JM_SSAO_DARKEST_POINT) + JM_SSAO_DARKEST_POINT);//saturate(ao);
+	#else
+		OUT_Color.r = pow2(occlusion);// pow(occlusion, 4);//saturate(ao);
+	#endif
 }
 
 
@@ -9426,7 +9479,22 @@ void main()
 	
 	if (hit >= 0.7) //apply contact hardening only on fairly certain hits
 	{
+#ifdef JM_SSR_UNHARDEN
+		#ifdef JM_COMPARE_VANILLA_SPLIT_SCREEN
+			if(IO_uv0.x > 0.5)
+			{	
+				dist += roughness; //Jon M. the 0.3 appears to make it way to smooth at distance, compared to all other specular responses!
+			}
+		else
+			{
+				dist += (0.3 * roughness); // make sure it never goes overly smooth for rough surfaces
+			}
+		#else
+			dist += roughness; //Jon M. the 0.3 appears to make it way to smooth at distance, compared to all other specular responses!
+		#endif
+#else
 		dist += (0.3 * roughness); // make sure it never goes overly smooth for rough surfaces
+#endif
 		dist = saturate(dist);
 		roughness *= (dist);
 	}
